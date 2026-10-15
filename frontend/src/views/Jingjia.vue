@@ -70,22 +70,22 @@ const statsData = computed(() => [
 
 <style scoped>
 .header-actions { display: flex; align-items: center; gap: 12px; }
-.update-time { font-size: 12px; color: #5a6e88; }
+.update-time { font-size: 12px; color: var(--color-text-muted); }
 
 .jj-stats-row { display: flex; gap: 14px; margin-bottom: 18px; }
 .jj-stat {
   flex: 1;
-  background: linear-gradient(135deg, #141e30, #1a2740);
-  border: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 14px;
   text-align: center;
   transition: all 0.3s;
 }
-.jj-stat:hover { border-color: #253d5f; transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.jj-stat:hover { border-color: var(--color-border-light); transform: translateY(-2px); box-shadow: var(--shadow-card-hover); }
 .jj-stat-rise { border-left: 3px solid #ef4444; }
 .jj-stat-fall { border-left: 3px solid #22c55e; }
-.jj-stat-label { display: block; font-size: 12px; color: #8fa0b8; margin-bottom: 6px; font-weight: 500; }
+.jj-stat-label { display: block; font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; font-weight: 500; }
 .jj-stat-val { font-size: 28px; font-weight: 800; }
 
 .board-mini {

@@ -1,17 +1,22 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useMarketStore } from '@/stores/market'
+import { useThemeStore } from '@/stores/theme'
 import * as echarts from 'echarts'
 
 const store = useMarketStore()
+const themeStore = useThemeStore()
 const chartRef = ref(null)
 let chart = null
 
 function initChart() {
   if (!chartRef.value || !store.zijinList.length) return
 
+  const isDark = themeStore.isDark
+  const axisColor = isDark ? '#8fa0b8' : '#5b6b82'
+
   chart?.dispose()
-  chart = echarts.init(chartRef.value, 'dark')
+  chart = echarts.init(chartRef.value, isDark ? 'dark' : undefined)
   const sorted = [...store.zijinList].sort((a, b) => Number(b.totalIn) - Number(a.totalIn))
   const reversedNames = [...sorted].reverse().map((item) => item.name)
   const reversedBarData = [...sorted].reverse().map((item) => ({
@@ -39,7 +44,7 @@ function initChart() {
     tooltip: { trigger: 'axis', formatter: (p) => `${p[0].name}: ${reversedBarData[p[0].dataIndex].name ? [...sorted].reverse()[p[0].dataIndex].totalIn : 0}亿` },
     grid: { top: 10, right: 50, bottom: 10, left: 80 },
     xAxis: { type: 'value', show: false },
-    yAxis: { type: 'category', data: reversedNames, axisLabel: { fontSize: 11, color: '#8fa0b8', fontWeight: 500 } },
+    yAxis: { type: 'category', data: reversedNames, axisLabel: { fontSize: 11, color: axisColor, fontWeight: 500 } },
     series: [{
       type: 'bar',
       data: reversedBarData,
@@ -48,7 +53,7 @@ function initChart() {
         show: true,
         position: 'right',
         fontSize: 10,
-        color: '#8fa0b8',
+        color: axisColor,
         formatter: (p) => `${[...sorted].reverse()[p.dataIndex].totalIn}亿`,
       },
     }],
@@ -59,6 +64,14 @@ onMounted(async () => {
   await store.loadZijin()
   initChart()
 })
+
+// 主题切换时重建图表。
+watch(
+  () => themeStore.isDark,
+  () => {
+    initChart()
+  },
+)
 onBeforeUnmount(() => chart?.dispose())
 </script>
 
@@ -107,7 +120,7 @@ onBeforeUnmount(() => chart?.dispose())
 
 <style scoped>
 .header-actions { display: flex; align-items: center; gap: 12px; }
-.update-time { font-size: 12px; color: #5a6e88; }
+.update-time { font-size: 12px; color: var(--color-text-muted); }
 
 .zijin-grid {
   display: grid;
@@ -116,27 +129,27 @@ onBeforeUnmount(() => chart?.dispose())
 }
 
 .zijin-card {
-  background: linear-gradient(135deg, #141e30, #1a2740);
-  border: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 16px;
   transition: all 0.3s;
 }
-.zijin-card:hover { border-color: #253d5f; transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.zijin-card:hover { border-color: var(--color-border-light); transform: translateY(-2px); box-shadow: var(--shadow-card-hover); }
 .zj-inflow { border-top: 2px solid #ef4444; }
 .zj-outflow { border-top: 2px solid #22c55e; }
 
 .zj-header {
   display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
 }
-.zj-name { font-size: 15px; font-weight: 700; color: #e8edf5; }
+.zj-name { font-size: 15px; font-weight: 700; color: var(--color-text-primary); }
 .zj-total { font-size: 16px; font-weight: 800; }
 
-.zj-detail { display: flex; gap: 16px; font-size: 12px; color: #8fa0b8; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(30,58,95,0.5); }
+.zj-detail { display: flex; gap: 16px; font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--color-border); }
 .zj-sub { display: flex; align-items: center; gap: 4px; }
 .zj-sub-dot { width: 5px; height: 5px; border-radius: 50%; }
 
 .zj-leader { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.zj-leader-label { color: #5a6e88; }
-.zj-leader-name { color: #c8d6e5; font-weight: 600; }
+.zj-leader-label { color: var(--color-text-muted); }
+.zj-leader-name { color: var(--color-text-primary); font-weight: 600; }
 </style>

@@ -73,7 +73,7 @@ function onRemove(code, name) {
 
     <div v-if="store.stocks.length === 0" class="empty-state">
       <div class="empty-icon">
-        <el-icon :size="40" color="#475569"><Star /></el-icon>
+        <el-icon :size="40" color="var(--color-text-muted)"><Star /></el-icon>
       </div>
       <p class="empty-text">暂无自选股</p>
       <p class="empty-sub">点击右上角“添加自选”按钮，把你关注的股票加入列表。</p>
@@ -114,15 +114,15 @@ function onRemove(code, name) {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-card-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   margin: 0 auto 16px;
 }
 
-.empty-text { font-size: 16px; font-weight: 600; color: #8fa0b8; margin: 0 0 4px; }
-.empty-sub { font-size: 13px; color: #5a6e88; margin: 0; }
+.empty-text { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 0 0 4px; }
+.empty-sub { font-size: 13px; color: var(--color-text-muted); margin: 0; }
 
 .zixuan-grid {
   display: grid;
@@ -131,8 +131,8 @@ function onRemove(code, name) {
 }
 
 .zx-card {
-  background: linear-gradient(145deg, #141e30, #1e2d45);
-  border: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 16px;
   transition: all 0.3s;
@@ -141,9 +141,9 @@ function onRemove(code, name) {
 }
 
 .zx-card:hover {
-  border-color: #253d5f;
+  border-color: var(--color-border-light);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .zx-card::before {
@@ -159,13 +159,13 @@ function onRemove(code, name) {
 .zx-fall::before { background: linear-gradient(180deg, #22c55e, rgba(34, 197, 94, 0.2)); }
 
 .zx-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-.zx-name { font-size: 16px; font-weight: 700; color: #e8edf5; }
-.zx-code { font-size: 11px; color: #5a6e88; margin-left: 6px; }
+.zx-name { font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
+.zx-code { font-size: 11px; color: var(--color-text-muted); margin-left: 6px; }
 
 .zx-del {
   background: none;
   border: none;
-  color: #475569;
+  color: var(--color-text-muted);
   font-size: 20px;
   cursor: pointer;
   padding: 0 4px;
@@ -177,7 +177,7 @@ function onRemove(code, name) {
 .zx-del:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
 
 .zx-price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.zx-price { font-size: 22px; font-weight: 800; color: #e8edf5; font-variant-numeric: tabular-nums; }
+.zx-price { font-size: 22px; font-weight: 800; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 .zx-pct-badge { font-size: 14px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 
 .zx-meta { display: flex; align-items: center; }

@@ -406,7 +406,7 @@ onMounted(() => {
   gap: 18px;
   padding: 22px;
   margin-bottom: 14px;
-  border: 1px solid rgba(30, 58, 95, 0.9);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   background:
     radial-gradient(circle at 12% 10%, rgba(249, 115, 22, 0.18), transparent 28%),
@@ -543,9 +543,9 @@ onMounted(() => {
   flex: 1 1 270px;
   min-width: 240px;
   padding: 15px;
-  border: 1px solid rgba(30, 58, 95, 0.8);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: rgba(10, 14, 23, 0.42);
+  background: var(--color-bg-card);
 }
 
 .check-card.is-ok {
@@ -623,7 +623,7 @@ onMounted(() => {
   gap: 12px;
   margin-top: 14px;
   padding-top: 10px;
-  border-top: 1px solid rgba(30, 58, 95, 0.55);
+  border-top: 1px solid var(--color-border);
   color: var(--color-text-muted);
   font-size: 12px;
 }

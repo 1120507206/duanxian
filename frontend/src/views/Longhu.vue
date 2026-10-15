@@ -81,20 +81,20 @@ const filteredList = computed(() => store.longhuList)
 
 <style scoped>
 .header-actions { display: flex; align-items: center; gap: 12px; }
-.update-time { font-size: 12px; color: #5a6e88; }
+.update-time { font-size: 12px; color: var(--color-text-muted); }
 
 .longhu-list { display: flex; flex-direction: column; gap: 14px; }
 
 .longhu-card {
-  background: linear-gradient(135deg, #141e30, #1a2740);
-  border: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 18px;
   transition: all 0.3s;
 }
 .longhu-card:hover {
-  border-color: #253d5f;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 2px rgba(59,130,246,0.08);
+  border-color: var(--color-border-light);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-1px);
 }
 
@@ -105,25 +105,25 @@ const filteredList = computed(() => store.longhuList)
   margin-bottom: 8px;
 }
 
-.lh-name { font-size: 16px; font-weight: 700; color: #e8edf5; }
-.lh-code { font-size: 11px; color: #5a6e88; margin-left: 8px; }
+.lh-name { font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
+.lh-code { font-size: 11px; color: var(--color-text-muted); margin-left: 8px; }
 .lh-price-row { text-align: right; }
 .lh-pct { font-size: 16px; font-weight: 700; }
-.lh-price { display: block; font-size: 12px; color: #8fa0b8; margin-top: 1px; }
+.lh-price { display: block; font-size: 12px; color: var(--color-text-secondary); margin-top: 1px; }
 
 .lh-reason {
   font-size: 12px;
-  color: #5a6e88;
+  color: var(--color-text-muted);
   margin-bottom: 14px;
   padding: 4px 10px;
-  background: rgba(255,255,255,0.02);
+  background: var(--color-bg-card-hover);
   border-radius: 4px;
   display: inline-block;
 }
 
 .lh-flow { display: flex; gap: 20px; }
 .lh-side { flex: 1; }
-.lh-divider { width: 1px; background: linear-gradient(180deg, transparent, #1e3a5f 20%, #1e3a5f 80%, transparent); }
+.lh-divider { width: 1px; background: linear-gradient(180deg, transparent, var(--color-border) 20%, var(--color-border) 80%, transparent); }
 
 .lh-side-title {
   font-size: 13px;
@@ -153,7 +153,7 @@ const filteredList = computed(() => store.longhuList)
   font-size: 11px;
   min-width: 45px;
 }
-.lh-dept { color: #c8d6e5; flex: 1; font-size: 12px; }
+.lh-dept { color: var(--color-text-primary); flex: 1; font-size: 12px; }
 .lh-amount { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .lh-total {
@@ -161,9 +161,9 @@ const filteredList = computed(() => store.longhuList)
   justify-content: space-between;
   padding-top: 8px;
   margin-top: 6px;
-  border-top: 1px solid rgba(30,58,95,0.6);
+  border-top: 1px solid var(--color-border);
   font-size: 13px;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .lh-net {
@@ -172,9 +172,9 @@ const filteredList = computed(() => store.longhuList)
   align-items: center;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(30,58,95,0.6);
+  border-top: 1px solid var(--color-border);
 }
-.net-label { font-size: 13px; color: #8fa0b8; }
+.net-label { font-size: 13px; color: var(--color-text-secondary); }
 .net-value { font-size: 16px; font-weight: 700; }
 
 @media (max-width: 768px) {

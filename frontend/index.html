@@ -1,12 +1,36 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>短线侠 - A股短线交易工具</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      FOUC 防护：在 Vue 挂载前同步读取主题，立即给 <html> 打上/移除 dark class。
+      默认浅色（light），只有 localStorage 明确为 dark 时才用深色。
+      同时设置 body 背景色变量，避免首帧白闪/黑闪。
+    -->
+    <script>
+      (function () {
+        try {
+          var KEY = 'duanxian:themeMode'
+          var stored = window.localStorage.getItem(KEY)
+          var mode = stored === 'dark' ? 'dark' : 'light'
+          var root = document.documentElement
+          if (mode === 'dark') {
+            root.classList.add('dark')
+            root.style.colorScheme = 'dark'
+          } else {
+            root.classList.remove('dark')
+            root.style.colorScheme = 'light'
+          }
+        } catch (e) {
+          // localStorage 不可用时保持默认浅色
+        }
+      })()
+    </script>
   </head>
-  <body class="bg-dark-bg text-slate-100">
+  <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

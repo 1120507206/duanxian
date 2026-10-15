@@ -4,13 +4,18 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { getMarketStatusText, isTradingTime } from '@/utils/tradingCalendar'
 import { onNotify } from '@/utils/notify'
+import { useThemeStore } from '@/stores/theme'
 
 const route = useRoute()
 const router = useRouter()
+const themeStore = useThemeStore()
 const now = ref(new Date())
 const disclaimerVisible = ref(localStorage.getItem('duanxian:riskAccepted') !== '1')
 let timerId = null
 let stopNotify = null
+
+// 当前路由对应的页面标题，用于顶栏展示。
+const currentTitle = computed(() => route.meta?.title || '短线侠')
 
 // 当前只推「涨停播报」一个功能：hidden 的入口保留在代码里（路由照旧可访问），
 // 等其它功能上线时把 hidden 去掉即可，不用改模板。
@@ -41,6 +46,10 @@ function acceptDisclaimer() {
   disclaimerVisible.value = false
 }
 
+function toggleTheme() {
+  themeStore.toggle()
+}
+
 onMounted(() => {
   timerId = window.setInterval(() => {
     now.value = new Date()
@@ -65,7 +74,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-layout">
     <aside class="sidebar">
-      <div class="sidebar-logo" @click="router.push('/')">
+      <div class="sidebar-logo" @click="router.push('/home')">
         <div class="logo-icon">
           <span class="logo-letters">DX</span>
         </div>
@@ -98,9 +107,30 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <main class="main-content">
-      <slot />
-    </main>
+    <div class="main-column">
+      <header class="topbar">
+        <div class="topbar-title">{{ currentTitle }}</div>
+        <div class="topbar-actions">
+          <button
+            class="theme-toggle"
+            type="button"
+            :title="themeStore.isDark ? '切换到浅色' : '切换到深色'"
+            :aria-label="themeStore.isDark ? '切换到浅色' : '切换到深色'"
+            @click="toggleTheme"
+          >
+            <el-icon :size="16" class="theme-icon">
+              <Sunny v-if="themeStore.isDark" />
+              <Moon v-else />
+            </el-icon>
+            <span class="theme-label">{{ themeStore.isDark ? '浅色' : '深色' }}</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <slot />
+      </main>
+    </div>
 
     <el-dialog v-model="disclaimerVisible" title="风险提示" width="420px" :close-on-click-modal="false">
       <p class="risk-copy">
@@ -121,18 +151,17 @@ onBeforeUnmount(() => {
   display: flex;
   height: 100vh;
   overflow: hidden;
-  background: #0a0e17;
+  background: var(--color-bg-deep);
 }
 
 .sidebar {
   width: 180px;
   flex-shrink: 0;
-  background: linear-gradient(180deg, #0c1222 0%, #0f172a 50%, #0c1222 100%);
-  border-right: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   z-index: 20;
-  box-shadow: 2px 0 20px rgba(0, 0, 0, 0.3);
 }
 
 .sidebar-logo {
@@ -141,11 +170,11 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 18px 14px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(30, 58, 95, 0.6);
-  transition: all 0.2s;
+  border-bottom: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
 }
 
-.sidebar-logo:hover { background: rgba(255, 255, 255, 0.02); }
+.sidebar-logo:hover { background: var(--color-bg-card-hover); }
 
 .logo-icon {
   width: 36px;
@@ -171,13 +200,13 @@ onBeforeUnmount(() => {
 .logo-text {
   font-size: 15px;
   font-weight: 700;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   letter-spacing: 0.05em;
 }
 
 .logo-sub {
   font-size: 10px;
-  color: #5a6e88;
+  color: var(--color-text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -197,24 +226,24 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-fast);
   position: relative;
   overflow: hidden;
 }
 
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.04);
-  color: #c8d6e5;
+  background: var(--color-bg-card-hover);
+  color: var(--color-text-primary);
   transform: translateX(2px);
 }
 
 .nav-item.active {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.08));
-  color: #f87171;
+  color: var(--color-rise);
   box-shadow: 0 2px 8px rgba(239, 68, 68, 0.08);
 }
 
@@ -233,7 +262,7 @@ onBeforeUnmount(() => {
 
 .sidebar-footer {
   padding: 14px 16px;
-  border-top: 1px solid rgba(30, 58, 95, 0.6);
+  border-top: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -255,7 +284,7 @@ onBeforeUnmount(() => {
 }
 
 .status-dot.closed {
-  background: #64748b;
+  background: var(--color-text-muted);
   box-shadow: none;
   animation: none;
 }
@@ -267,28 +296,85 @@ onBeforeUnmount(() => {
 
 .status-text {
   font-size: 11px;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
 .sidebar-version {
   font-size: 10px;
-  color: #5a6e88;
+  color: var(--color-text-muted);
   text-decoration: none;
-  transition: color 0.16s ease;
+  transition: color var(--transition-fast);
 }
 
-.sidebar-version:hover { color: #f87171; }
+.sidebar-version:hover { color: var(--color-rise); }
+
+/* ---------- 主列：顶栏 + 内容 ---------- */
+.main-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topbar {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: var(--color-bg-card);
+  border-bottom: 1px solid var(--color-border);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth);
+}
+
+.topbar-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: 0.02em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  color: var(--color-rise);
+  border-color: var(--color-rise);
+  background: var(--color-rise-soft);
+}
+
+.theme-icon { transition: transform var(--transition-smooth); }
+.theme-toggle:hover .theme-icon { transform: rotate(20deg); }
+.theme-label { line-height: 1; }
 
 .main-content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   min-width: 0;
-  background:
-    radial-gradient(ellipse at 20% 0%, rgba(239, 68, 68, 0.03) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 100%, rgba(59, 130, 246, 0.02) 0%, transparent 60%),
-    #0f172a;
+  background: var(--color-bg-base);
+  transition: background-color var(--transition-smooth);
 }
 
 .risk-copy,
@@ -310,5 +396,8 @@ onBeforeUnmount(() => {
   .nav-item { justify-content: center; padding: 12px; }
   .sidebar-logo { justify-content: center; padding: 14px; }
   .nav-indicator { left: auto; right: 0; }
+  .topbar { padding: 0 12px; }
+  .topbar-title { font-size: 13px; }
+  .theme-label { display: none; }
 }
 </style>

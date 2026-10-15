@@ -2,32 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ========== 设计令牌 ========== */
+/* ============================================================
+   设计令牌 —— 双套（浅色默认 / 深色覆盖）
+   变量名保持语义一致，所有 .card / .page-title / Element Plus
+   覆盖等既有样式会自动跟随主题切换。
+   ============================================================ */
+
+/* ---------- 浅色（默认） ---------- */
 :root {
+  /* 涨跌语义色：A 股习惯「涨=红、跌=绿」，浅色下略微加深以免发飘 */
+  --color-rise: #dc2626;
+  --color-fall: #16a34a;
+  --color-flat: #6b7280;
+  --color-accent: #ea580c;
+
+  /* 背景层次：浅灰白基底 → 纯白卡片 */
+  --color-bg-deep: #eef2f7;
+  --color-bg-base: #f5f7fa;
+  --color-bg-card: #ffffff;
+  --color-bg-card-hover: #f8fafc;
+  --color-bg-elevated: #ffffff;
+
+  /* 边框：浅灰 */
+  --color-border: #e2e8f0;
+  --color-border-light: #cbd5e1;
+
+  /* 文字：深色 */
+  --color-text-primary: #1a2233;
+  --color-text-secondary: #5b6b82;
+  --color-text-muted: #94a3b8;
+
+  /* 作用色（供 tabular-nums / 强调块复用） */
+  --color-rise-soft: rgba(220, 38, 38, 0.10);
+  --color-fall-soft: rgba(22, 163, 74, 0.10);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* 浅色阴影：更柔和的冷灰投影 */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.06);
+  --shadow-card-hover: 0 8px 28px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.06);
+
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------- 深色覆盖 ---------- */
+html.dark {
+  color-scheme: dark;
+
   --color-rise: #ef4444;
   --color-fall: #22c55e;
   --color-flat: #9ca3af;
   --color-accent: #f97316;
+
   --color-bg-deep: #0a0e17;
   --color-bg-base: #0f172a;
   --color-bg-card: #141e30;
   --color-bg-card-hover: #1a2740;
   --color-bg-elevated: #1a2940;
+
   --color-border: #1e3a5f;
   --color-border-light: #253d5f;
+
   --color-text-primary: #e8edf5;
   --color-text-secondary: #8fa0b8;
   --color-text-muted: #5a6e88;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.3), 0 0 1px rgba(59,130,246,0.06);
-  --shadow-card-hover: 0 8px 24px rgba(0,0,0,0.4), 0 0 2px rgba(59,130,246,0.1);
-  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --color-rise-soft: rgba(239, 68, 68, 0.14);
+  --color-fall-soft: rgba(34, 197, 94, 0.14);
+
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(59, 130, 246, 0.06);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 2px rgba(59, 130, 246, 0.1);
 }
 
-html.dark { color-scheme: dark; }
+html { color-scheme: light; }
 
 body {
   font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -36,16 +86,17 @@ body {
   min-width: 320px;
   background: var(--color-bg-base);
   color: var(--color-text-primary);
+  transition: background-color var(--transition-smooth), color var(--transition-smooth);
 }
 
 /* ========== 滚动条 ========== */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #1e3a5f, #253d5f);
+  background: var(--color-border-light);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: #3b5998; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
 /* ========== 涨跌颜色 ========== */
 .text-rise { color: var(--color-rise); }
@@ -53,8 +104,11 @@ body {
 .text-flat { color: var(--color-flat); }
 .bg-rise { background: var(--color-rise); }
 .bg-fall { background: var(--color-fall); }
-.bg-rise-soft { background: rgba(239,68,68,0.12); }
-.bg-fall-soft { background: rgba(34,197,94,0.12); }
+.bg-rise-soft { background: var(--color-rise-soft); }
+.bg-fall-soft { background: var(--color-fall-soft); }
+
+/* 等宽数字工具类（对齐更适合行情表） */
+.tnum { font-variant-numeric: tabular-nums; }
 
 /* ========== 卡片样式 ========== */
 .card {
@@ -63,12 +117,13 @@ body {
   border-radius: var(--radius-md);
   padding: 18px;
   box-shadow: var(--shadow-card);
-  transition: all var(--transition-smooth);
-  backdrop-filter: blur(4px);
+  transition: background-color var(--transition-smooth), border-color var(--transition-smooth),
+    box-shadow var(--transition-smooth), transform var(--transition-smooth);
 }
 .card:hover {
   border-color: var(--color-border-light);
   box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
 }
 
 .card-header {
@@ -93,7 +148,7 @@ body {
   display: inline-block;
   width: 3px;
   height: 14px;
-  background: linear-gradient(180deg, #ef4444, #f97316);
+  background: linear-gradient(180deg, var(--color-rise), var(--color-accent));
   border-radius: 2px;
 }
 
@@ -112,11 +167,16 @@ body {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+  opacity: 0.9;
+}
+html:not(.dark) .glow-border::after {
+  /* 浅色下更克制，避免描边过重 */
+  background: linear-gradient(135deg, rgba(239,68,68,0.22), rgba(249,115,22,0.08), rgba(59,130,246,0.14));
 }
 
 /* ========== 渐变动画按钮 ========== */
 .btn-gradient {
-  background: linear-gradient(135deg, #ef4444, #f97316);
+  background: linear-gradient(135deg, var(--color-rise), var(--color-accent));
   color: #fff;
   border: none;
   padding: 8px 16px;
@@ -132,7 +192,9 @@ body {
 }
 .btn-gradient:active { transform: translateY(0); }
 
-/* ========== Element Plus 深色覆盖 ========== */
+/* ============================================================
+   Element Plus 主题覆盖 —— 全部走变量，明暗自适应
+   ============================================================ */
 .el-table {
   --el-table-bg-color: var(--color-bg-card);
   --el-table-tr-bg-color: var(--color-bg-card);
@@ -140,64 +202,107 @@ body {
   --el-table-border-color: var(--color-border);
   --el-table-text-color: var(--color-text-primary);
   --el-table-header-text-color: var(--color-text-secondary);
-  --el-table-row-hover-bg-color: rgba(59,130,246,0.08);
+  --el-table-row-hover-bg-color: var(--color-rise-soft);
   font-size: 13px;
   border-radius: var(--radius-md);
   overflow: hidden;
 }
-
+.el-table,
+.el-table__inner-wrapper,
+.el-table tr,
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  background-color: var(--color-bg-card);
+  color: var(--color-text-primary);
+}
 .el-table th.el-table__cell {
   background: var(--color-bg-deep);
+  color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   border-bottom: 2px solid var(--color-border-light);
 }
-
 .el-table .cell { padding: 8px 10px; }
-
 .el-table td.el-table__cell {
-  border-bottom: 1px solid rgba(30,58,95,0.5);
+  border-bottom: 1px solid var(--color-border);
 }
-
 .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
-  background: rgba(30,58,95,0.25);
+  background: var(--color-bg-card-hover);
 }
+.el-table__empty-block { background: var(--color-bg-card); }
+.el-table__empty-text { color: var(--color-text-muted); }
 
-/* Element Plus 弹窗深色覆盖 */
+/* 弹窗 */
 .el-dialog {
   --el-dialog-bg-color: var(--color-bg-card);
   --el-dialog-title-font-size: 16px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card-hover);
 }
+.el-dialog__title { color: var(--color-text-primary); }
+.el-dialog__body { color: var(--color-text-secondary); }
 
+/* 按钮 */
 .el-button--primary {
-  --el-button-bg-color: #ef4444;
-  --el-button-border-color: #ef4444;
+  --el-button-bg-color: var(--color-rise);
+  --el-button-border-color: var(--color-rise);
   --el-button-hover-bg-color: #dc2626;
   --el-button-hover-border-color: #dc2626;
+  --el-button-active-bg-color: #b91c1c;
+  --el-button-active-border-color: #b91c1c;
 }
 .el-button--primary:hover { box-shadow: 0 4px 12px rgba(239,68,68,0.3); }
 
-.el-input__wrapper {
-  background: var(--color-bg-base) !important;
-  border-color: var(--color-border) !important;
+/* 输入 / 选择 / 日期 */
+.el-input__wrapper,
+.el-textarea__inner {
+  background: var(--color-bg-card) !important;
+  border: 1px solid var(--color-border) !important;
   box-shadow: none !important;
 }
 .el-input__wrapper:hover { border-color: var(--color-border-light) !important; }
 .el-input__inner { color: var(--color-text-primary) !important; }
+.el-input__inner::placeholder { color: var(--color-text-muted) !important; }
 
-.el-picker-panel {
+.el-select__wrapper {
   background: var(--color-bg-card) !important;
+  box-shadow: none !important;
   border: 1px solid var(--color-border) !important;
 }
 
+/* 下拉 / 弹层 / 消息 */
+.el-popper,
+.el-select-dropdown,
+.el-picker-panel,
 .el-message-box {
   background: var(--color-bg-card) !important;
   border: 1px solid var(--color-border) !important;
+  color: var(--color-text-primary);
 }
+.el-select-dropdown__item { color: var(--color-text-primary); }
+.el-select-dropdown__item.is-hovering { background: var(--color-bg-card-hover); }
+
+/* 标签页 / 卡片 / 描述列表 */
+.el-tabs__item { color: var(--color-text-secondary); }
+.el-tabs__item.is-active { color: var(--color-rise); }
+.el-tabs__nav-wrap::after { background-color: var(--color-border); }
+.el-card {
+  --el-card-bg-color: var(--color-bg-card);
+  --el-card-border-color: var(--color-border);
+}
+.el-descriptions { --el-descriptions-item-bordered-label-background: var(--color-bg-deep); }
+.el-descriptions__body { background: var(--color-bg-card); color: var(--color-text-primary); }
+
+/* 分页 / 空态 */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-text-color: var(--color-text-secondary);
+  --el-pagination-button-color: var(--color-text-primary);
+}
+.el-empty__description p { color: var(--color-text-muted); }
 
 /* ========== 页面通用样式 ========== */
 .page {
@@ -226,11 +331,7 @@ body {
   font-weight: 700;
   color: var(--color-text-primary);
   margin: 0;
-  letter-spacing: 0.03em;
-  background: linear-gradient(135deg, #e8edf5, #c8d6e5);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  letter-spacing: 0.02em;
 }
 
 /* ========== 统计卡片动画 ========== */
@@ -243,11 +344,11 @@ body {
 /* ========== 数字闪烁动画 ========== */
 @keyframes flash-rise {
   0%, 100% { background: transparent; }
-  50% { background: rgba(239, 68, 68, 0.12); }
+  50% { background: var(--color-rise-soft); }
 }
 @keyframes flash-fall {
   0%, 100% { background: transparent; }
-  50% { background: rgba(34, 197, 94, 0.12); }
+  50% { background: var(--color-fall-soft); }
 }
 .flash-up { animation: flash-rise 0.6s ease; }
 .flash-down { animation: flash-fall 0.6s ease; }
@@ -258,10 +359,30 @@ body {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, var(--color-bg-card) 25%, rgba(59,130,246,0.08) 50%, var(--color-bg-card) 75%);
+  background: linear-gradient(90deg, var(--color-bg-card) 25%, var(--color-bg-card-hover) 50%, var(--color-bg-card) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-sm);
+}
+
+/* ========== 通用「更多」胶囊链接 ========== */
+.more-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  transition: all var(--transition-fast);
+}
+.more-link:hover {
+  color: var(--color-rise);
+  border-color: var(--color-rise);
+  background: var(--color-rise-soft);
 }
 
 /* ========== 响应式 ========== */

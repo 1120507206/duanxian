@@ -69,7 +69,7 @@ const columns = [
 
 <style scoped>
 .header-actions { display: flex; align-items: center; gap: 12px; }
-.update-time { font-size: 12px; color: #5a6e88; }
+.update-time { font-size: 12px; color: var(--color-text-muted); }
 
 .board-group { margin-bottom: 24px; }
 
@@ -103,9 +103,9 @@ const columns = [
   min-width: 28px;
 }
 
-.board-count { font-size: 12px; color: #8fa0b8; font-weight: 500; }
-.board-line { flex: 1; height: 1px; background: linear-gradient(90deg, #1e3a5f, transparent); }
+.board-count { font-size: 12px; color: var(--color-text-secondary); font-weight: 500; }
+.board-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
 
-.stock-name-link { color: #e8edf5; font-weight: 600; cursor: pointer; }
+.stock-name-link { color: var(--color-text-primary); font-weight: 600; cursor: pointer; }
 .stock-name-link:hover { color: #f87171; }
 </style>

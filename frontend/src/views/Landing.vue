@@ -12,49 +12,58 @@ import {
   ArrowRight,
   CopyDocument,
   Promotion,
+  Sunny,
+  Moon,
 } from '@element-plus/icons-vue'
+import { useThemeStore } from '@/stores/theme'
 
 const router = useRouter()
+const themeStore = useThemeStore()
 const currentYear = new Date().getFullYear()
 const copySuccess = ref(false)
-const siteUrl = computed(() => typeof window !== 'undefined' ? window.location.origin : '')
+const siteUrl = computed(() => (typeof window !== 'undefined' ? window.location.origin : ''))
 
+/**
+ * 功能卡配置。
+ * `accent` 为显式 CSS 渐变（不再依赖 Tailwind 工具类，避免 content 扫描
+ * 覆盖不到导致的配色丢失），统一收敛为「红/橙品牌主色 + 少量辅助色」。
+ */
 const features = [
   {
     icon: Notification,
     title: '实时涨停播报',
     description: '毫秒级追踪涨停板与炸板，第一时间掌握市场最强音',
-    color: 'from-red-500 to-orange-500',
+    accent: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
   },
   {
     icon: Monitor,
     title: '嵌入通达信',
     description: '一键嵌入通达信、同花顺等主流软件，交易看盘无缝衔接',
-    color: 'from-blue-500 to-cyan-500',
+    accent: 'linear-gradient(135deg, #f97316 0%, #fb923c 100%)',
   },
   {
     icon: Microphone,
     title: '语音播报',
     description: '支持语音实时播报，开车盯盘两不误',
-    color: 'from-purple-500 to-pink-500',
+    accent: 'linear-gradient(135deg, #e11d48 0%, #ef4444 100%)',
   },
   {
     icon: LinkIcon,
     title: '复制链接分享',
     description: '一键复制专属链接，分享给好友共同追踪',
-    color: 'from-green-500 to-emerald-500',
+    accent: 'linear-gradient(135deg, #ea580c 0%, #f97316 100%)',
   },
   {
     icon: TrendCharts,
     title: '板块筛选',
     description: '按板块快速筛选，精准定位热点方向',
-    color: 'from-yellow-500 to-orange-500',
+    accent: 'linear-gradient(135deg, #f59e0b 0%, #f97316 100%)',
   },
   {
     icon: Timer,
     title: '历史回溯',
     description: '完整记录当日涨停数据，随时复盘分析',
-    color: 'from-indigo-500 to-purple-500',
+    accent: 'linear-gradient(135deg, #dc2626 0%, #e11d48 100%)',
   },
 ]
 
@@ -126,12 +135,18 @@ function goToZtlive() {
   router.push('/ztlive')
 }
 
+function toggleTheme() {
+  themeStore.toggle()
+}
+
 // Animated counter
 const counters = ref({
   users: 0,
   stocks: 0,
   accuracy: 0,
 })
+
+let counterTimer = null
 
 onMounted(() => {
   const duration = 2000
@@ -145,7 +160,7 @@ onMounted(() => {
   }
 
   let current = 0
-  const timer = setInterval(() => {
+  counterTimer = setInterval(() => {
     current++
     const progress = current / steps
 
@@ -154,19 +169,39 @@ onMounted(() => {
     counters.value.accuracy = Math.floor(targets.accuracy * progress)
 
     if (current >= steps) {
-      clearInterval(timer)
+      clearInterval(counterTimer)
+      counterTimer = null
       counters.value = targets
     }
   }, interval)
+})
 
-  onBeforeUnmount(() => {
-    clearInterval(timer)
-  })
+// 顶层清理：语义正确，组件卸载时清除计数器定时器。
+onBeforeUnmount(() => {
+  if (counterTimer) {
+    clearInterval(counterTimer)
+    counterTimer = null
+  }
 })
 </script>
 
 <template>
   <div class="landing-page">
+    <!-- 主题切换：Landing 不挂 AppLayout，这里提供独立入口 -->
+    <button
+      class="theme-fab"
+      type="button"
+      :title="themeStore.isDark ? '切换到浅色' : '切换到深色'"
+      :aria-label="themeStore.isDark ? '切换到浅色' : '切换到深色'"
+      @click="toggleTheme"
+    >
+      <el-icon :size="18" class="theme-fab-icon">
+        <Sunny v-if="themeStore.isDark" />
+        <Moon v-else />
+      </el-icon>
+      <span class="theme-fab-label">{{ themeStore.isDark ? '浅色' : '深色' }}</span>
+    </button>
+
     <!-- Hero Section -->
     <section class="hero">
       <div class="hero-bg">
@@ -221,15 +256,22 @@ onMounted(() => {
 
       <div class="hero-visual">
         <div class="visual-card">
-          <div class="card-header">
+          <div class="visual-card-header">
             <div class="card-dots">
               <span class="dot dot-red"></span>
               <span class="dot dot-yellow"></span>
               <span class="dot dot-green"></span>
             </div>
-            <div class="card-title">涨停播报</div>
+            <div class="visual-card-title">涨停播报</div>
+            <span class="live-pill">
+              <span class="live-dot"></span>实时
+            </span>
           </div>
-          <div class="card-body">
+          <div class="visual-card-cols">
+            <span>名称 / 代码</span>
+            <span>现价 / 涨跌幅</span>
+          </div>
+          <div class="visual-card-body">
             <div class="stock-item">
               <div class="stock-info">
                 <span class="stock-name">东方财富</span>
@@ -274,15 +316,9 @@ onMounted(() => {
         </div>
 
         <div class="features-grid">
-          <div
-            v-for="(feature, index) in features"
-            :key="index"
-            class="feature-card"
-          >
-            <div class="feature-icon-wrapper">
-              <div class="feature-icon" :class="feature.color">
-                <component :is="feature.icon" class="icon-svg" />
-              </div>
+          <div v-for="(feature, index) in features" :key="index" class="feature-card">
+            <div class="feature-icon" :style="{ background: feature.accent }">
+              <component :is="feature.icon" class="icon-svg" />
             </div>
             <h3 class="feature-title">{{ feature.title }}</h3>
             <p class="feature-description">{{ feature.description }}</p>
@@ -317,7 +353,7 @@ onMounted(() => {
       <div class="section-container">
         <div class="section-header">
           <div class="promo-badge">
-            <span class="promo-icon">🎉</span>
+            <Promotion class="promo-icon" />
             <span>推广期限时免费</span>
           </div>
           <h2 class="section-title">选择适合你的方案</h2>
@@ -341,7 +377,9 @@ onMounted(() => {
             <p class="pricing-description">{{ plan.description }}</p>
             <ul class="pricing-features">
               <li v-for="(feature, fIndex) in plan.features" :key="fIndex">
-                <Check class="feature-check" />
+                <span class="feature-check">
+                  <Check class="feature-check-svg" />
+                </span>
                 <span>{{ feature }}</span>
               </li>
             </ul>
@@ -384,7 +422,6 @@ onMounted(() => {
             </div>
             <div class="link-group">
               <h4 class="link-title">支持</h4>
-              <a href="/status" class="link-item">状态中心</a>
               <a href="/about" class="link-item">风险说明</a>
             </div>
           </div>
@@ -404,13 +441,53 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ============================================================
+   落地页 —— 全量走主题令牌，明暗自适应
+   仅保留两类裸 hex：① 涨跌/品牌语义色（红橙）② 彩底白字 #fff
+   ============================================================ */
 .landing-page {
-  background: #0a0e17;
-  color: #e8edf5;
+  position: relative;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
   overflow-x: hidden;
+  transition: background-color var(--transition-smooth), color var(--transition-smooth);
 }
 
-/* Hero Section */
+/* ---------- 主题切换浮层 ---------- */
+.theme-fab {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+}
+
+.theme-fab:hover {
+  color: var(--color-rise);
+  border-color: var(--color-rise);
+  background: var(--color-rise-soft);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.theme-fab-icon { transition: transform var(--transition-smooth); }
+.theme-fab:hover .theme-fab-icon { transform: rotate(20deg); }
+.theme-fab-label { line-height: 1; }
+
+/* ---------- Hero ---------- */
 .hero {
   position: relative;
   min-height: 100vh;
@@ -438,6 +515,10 @@ onMounted(() => {
   animation: float 20s ease-in-out infinite;
 }
 
+html:not(.dark) .hero-gradient {
+  background: radial-gradient(ellipse, rgba(239, 68, 68, 0.10) 0%, transparent 70%);
+}
+
 .hero-grid {
   position: absolute;
   inset: 0;
@@ -446,6 +527,13 @@ onMounted(() => {
     linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
   background-size: 50px 50px;
   mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 70%);
+}
+
+html:not(.dark) .hero-grid {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
 }
 
 @keyframes float {
@@ -470,9 +558,15 @@ onMounted(() => {
   border-radius: 100px;
   font-size: 14px;
   font-weight: 500;
-  color: #f87171;
+  color: #dc2626;
   margin-bottom: 24px;
   animation: fadeInUp 0.6s ease-out;
+}
+
+html.dark .hero-badge {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
 }
 
 .badge-icon {
@@ -482,21 +576,22 @@ onMounted(() => {
 }
 
 .hero-title {
-  font-size: 72px;
+  font-size: 76px;
   font-weight: 900;
-  line-height: 1.1;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
   margin-bottom: 24px;
   animation: fadeInUp 0.6s ease-out 0.1s both;
 }
 
 .title-line {
   display: block;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .title-gradient {
   display: block;
-  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  background: linear-gradient(120deg, #ef4444 0%, #f97316 55%, #f59e0b 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -505,7 +600,7 @@ onMounted(() => {
 .hero-subtitle {
   font-size: 18px;
   line-height: 1.7;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   margin-bottom: 40px;
   animation: fadeInUp 0.6s ease-out 0.2s both;
 }
@@ -539,18 +634,20 @@ onMounted(() => {
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(239, 68, 68, 0.4);
+  box-shadow: 0 14px 34px rgba(239, 68, 68, 0.42);
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: #e8edf5;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-light);
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--color-bg-card-hover);
+  border-color: var(--color-rise);
+  color: var(--color-rise);
+  transform: translateY(-2px);
 }
 
 .btn-icon {
@@ -571,27 +668,30 @@ onMounted(() => {
 }
 
 .stat-value {
-  font-size: 36px;
+  font-size: 38px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin-bottom: 4px;
+  line-height: 1.1;
 }
 
 .stat-label {
   font-size: 14px;
-  color: #64748b;
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
 .stat-divider {
   width: 1px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.1);
+  height: 44px;
+  background: var(--color-border);
 }
 
+/* ---------- Hero 右侧模拟卡片 ---------- */
 .hero-visual {
   position: relative;
   z-index: 1;
@@ -601,21 +701,26 @@ onMounted(() => {
 }
 
 .visual-card {
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(12, 18, 34, 0.8));
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   overflow: hidden;
-  backdrop-filter: blur(20px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-card-hover);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
 }
 
-.card-header {
+.visual-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.visual-card-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--color-bg-deep);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .card-dots {
@@ -633,76 +738,113 @@ onMounted(() => {
 .dot-yellow { background: #f59e0b; }
 .dot-green { background: #22c55e; }
 
-.card-title {
+.visual-card-title {
   font-size: 14px;
   font-weight: 600;
-  color: #8fa0b8;
+  color: var(--color-text-primary);
+  letter-spacing: 0.02em;
 }
 
-.card-body {
-  padding: 20px;
+.live-pill {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #dc2626;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--color-rise-soft);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse-live 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.visual-card-cols {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 22px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.visual-card-body {
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
 }
 
 .stock-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-  transition: all 0.2s;
+  padding: 12px 14px;
+  background: transparent;
+  border-radius: 10px;
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
 }
 
 .stock-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--color-bg-card-hover);
   transform: translateX(4px);
 }
 
 .stock-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .stock-name {
   font-size: 15px;
   font-weight: 600;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .stock-code {
   font-size: 12px;
-  color: #64748b;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
 }
 
 .stock-price {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 3px;
 }
 
 .price-value {
   font-size: 16px;
   font-weight: 700;
-  color: #e8edf5;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
 }
 
 .price-change {
   font-size: 13px;
   font-weight: 600;
-  color: #ef4444;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-rise);
 }
 
-/* Features Section */
-.features {
-  padding: 120px 8%;
-  background: linear-gradient(180deg, #0a0e17 0%, #0f172a 100%);
-}
-
+/* ---------- 区块通用 ---------- */
 .section-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -710,56 +852,59 @@ onMounted(() => {
 
 .section-header {
   text-align: center;
-  margin-bottom: 80px;
+  margin-bottom: 72px;
 }
 
 .section-title {
-  font-size: 48px;
+  font-size: 46px;
   font-weight: 800;
+  letter-spacing: -0.01em;
   margin-bottom: 16px;
-  background: linear-gradient(135deg, #e8edf5 0%, #8fa0b8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-text-primary);
 }
 
 .section-subtitle {
   font-size: 18px;
-  color: #64748b;
+  color: var(--color-text-secondary);
+}
+
+/* ---------- Features ---------- */
+.features {
+  padding: 120px 8%;
+  background: var(--color-bg-deep);
+  transition: background-color var(--transition-smooth);
 }
 
 .features-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 32px;
+  gap: 28px;
 }
 
 .feature-card {
   padding: 32px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-smooth);
 }
 
 .feature-card:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--color-border-light);
   transform: translateY(-8px);
-}
-
-.feature-icon-wrapper {
-  margin-bottom: 20px;
+  box-shadow: var(--shadow-card-hover);
 }
 
 .feature-icon {
   width: 56px;
   height: 56px;
-  border-radius: 12px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.22);
 }
 
 .icon-svg {
@@ -772,25 +917,25 @@ onMounted(() => {
   font-size: 20px;
   font-weight: 700;
   margin-bottom: 12px;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .feature-description {
   font-size: 15px;
   line-height: 1.6;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
 }
 
-/* How to Use Section */
+/* ---------- How to Use ---------- */
 .how-to-use {
   padding: 120px 8%;
-  background: #0f172a;
+  background: var(--color-bg-base);
+  transition: background-color var(--transition-smooth);
 }
 
 .steps-container {
   display: flex;
   gap: 24px;
-  margin-bottom: 60px;
   justify-content: center;
 }
 
@@ -798,21 +943,23 @@ onMounted(() => {
   flex: 1;
   max-width: 320px;
   padding: 32px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   position: relative;
-  transition: all 0.3s;
+  transition: all var(--transition-smooth);
 }
 
 .step-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-border-light);
   transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .step-num {
   font-size: 48px;
   font-weight: 900;
+  line-height: 1;
   background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -824,13 +971,13 @@ onMounted(() => {
   font-size: 20px;
   font-weight: 700;
   margin-bottom: 12px;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .step-description {
   font-size: 15px;
   line-height: 1.6;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
 }
 
 .step-arrow {
@@ -838,14 +985,16 @@ onMounted(() => {
   right: -32px;
   top: 50%;
   transform: translateY(-50%);
-  color: #64748b;
-  font-size: 24px;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted);
 }
 
-/* Pricing Section */
+/* ---------- Pricing ---------- */
 .pricing {
   padding: 120px 8%;
-  background: linear-gradient(180deg, #0f172a 0%, #0a0e17 100%);
+  background: var(--color-bg-deep);
+  transition: background-color var(--transition-smooth);
 }
 
 .promo-badge {
@@ -853,17 +1002,22 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.15));
+  background: var(--color-fall-soft);
   border: 1px solid rgba(34, 197, 94, 0.3);
   border-radius: 100px;
   font-size: 15px;
   font-weight: 600;
-  color: #22c55e;
+  color: #16a34a;
   margin-bottom: 24px;
 }
 
+html.dark .promo-badge {
+  color: #22c55e;
+}
+
 .promo-icon {
-  font-size: 18px;
+  width: 18px;
+  height: 18px;
 }
 
 .pricing-grid {
@@ -876,22 +1030,25 @@ onMounted(() => {
 
 .pricing-card {
   padding: 40px 32px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 20px;
   position: relative;
-  transition: all 0.3s;
+  transition: all var(--transition-smooth);
 }
 
 .pricing-card:hover {
-  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-border-light);
   transform: translateY(-8px);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .pricing-card.highlighted {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(249, 115, 22, 0.1));
-  border-color: rgba(239, 68, 68, 0.3);
-  box-shadow: 0 20px 60px rgba(239, 68, 68, 0.2);
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--color-bg-card), var(--color-bg-card)) padding-box,
+    linear-gradient(135deg, #ef4444, #f97316) border-box;
+  box-shadow: 0 20px 50px rgba(239, 68, 68, 0.18);
 }
 
 .pricing-badge {
@@ -904,13 +1061,14 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 700;
   color: #fff;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
 }
 
 .pricing-name {
   font-size: 24px;
   font-weight: 700;
   margin-bottom: 16px;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .pricing-price {
@@ -923,12 +1081,13 @@ onMounted(() => {
 .price-currency {
   font-size: 24px;
   font-weight: 700;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .price-amount {
   font-size: 56px;
   font-weight: 900;
+  font-variant-numeric: tabular-nums;
   background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -938,19 +1097,20 @@ onMounted(() => {
 
 .price-period {
   font-size: 18px;
-  color: #64748b;
+  color: var(--color-text-muted);
   font-weight: 500;
 }
 
 .pricing-description {
   font-size: 15px;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   margin-bottom: 32px;
 }
 
 .pricing-features {
   list-style: none;
-  margin-bottom: 32px;
+  margin: 0 0 32px;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -961,14 +1121,28 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   font-size: 15px;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .feature-check {
-  color: #22c55e;
-  width: 18px;
-  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
   flex-shrink: 0;
+  background: var(--color-fall-soft);
+}
+
+.feature-check-svg {
+  width: 14px;
+  height: 14px;
+  color: #16a34a;
+}
+
+html.dark .feature-check-svg {
+  color: #22c55e;
 }
 
 .pricing-btn {
@@ -978,33 +1152,37 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s;
-  border: none;
-  background: rgba(255, 255, 255, 0.05);
-  color: #e8edf5;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all var(--transition-smooth);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-light);
 }
 
 .pricing-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--color-rise);
+  color: var(--color-rise);
+  background: var(--color-rise-soft);
 }
 
 .pricing-btn.btn-highlighted {
   background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
   color: #fff;
+  border: none;
   box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
 }
 
 .pricing-btn.btn-highlighted:hover {
-  box-shadow: 0 12px 32px rgba(239, 68, 68, 0.4);
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(239, 68, 68, 0.42);
   transform: translateY(-2px);
 }
 
-/* Footer */
+/* ---------- Footer ---------- */
 .footer {
-  padding: 60px 8% 40px;
-  background: #0a0e17;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 64px 8% 40px;
+  background: var(--color-bg-base);
+  border-top: 1px solid var(--color-border);
+  transition: background-color var(--transition-smooth);
 }
 
 .footer-container {
@@ -1038,6 +1216,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
 .footer-logo .logo-letters {
@@ -1055,17 +1234,17 @@ onMounted(() => {
 .footer-logo .logo-text {
   font-size: 16px;
   font-weight: 700;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .footer-logo .logo-sub {
   font-size: 11px;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
 
 .footer-description {
   font-size: 14px;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   line-height: 1.6;
 }
 
@@ -1083,40 +1262,40 @@ onMounted(() => {
 .link-title {
   font-size: 14px;
   font-weight: 700;
-  color: #e8edf5;
-  margin-bottom: 8px;
+  color: var(--color-text-primary);
+  margin: 0 0 8px;
 }
 
 .link-item {
   font-size: 14px;
-  color: #8fa0b8;
+  color: var(--color-text-secondary);
   text-decoration: none;
-  transition: color 0.2s;
+  transition: color var(--transition-fast), transform var(--transition-fast);
 }
 
 .link-item:hover {
-  color: #f87171;
+  color: var(--color-rise);
 }
 
 .footer-bottom {
   padding-top: 32px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--color-border);
   text-align: center;
 }
 
 .footer-copyright {
   font-size: 14px;
-  color: #64748b;
+  color: var(--color-text-secondary);
   margin-bottom: 12px;
 }
 
 .footer-disclaimer {
   font-size: 13px;
-  color: #475569;
+  color: var(--color-text-muted);
   line-height: 1.6;
 }
 
-/* Animations */
+/* ---------- Animations ---------- */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -1139,12 +1318,12 @@ onMounted(() => {
   }
 }
 
-/* Responsive */
+/* ---------- Responsive ---------- */
 @media (max-width: 1024px) {
   .hero {
     flex-direction: column;
     text-align: center;
-    padding: 100px 5% 60px;
+    padding: 110px 5% 60px;
   }
 
   .hero-content {
@@ -1155,8 +1334,13 @@ onMounted(() => {
     font-size: 56px;
   }
 
+  .hero-subtitle br {
+    display: none;
+  }
+
   .hero-visual {
     max-width: 100%;
+    width: 100%;
   }
 
   .hero-stats {
@@ -1168,12 +1352,27 @@ onMounted(() => {
     align-items: center;
   }
 
+  .step-card {
+    max-width: 480px;
+    width: 100%;
+  }
+
   .step-arrow {
     display: none;
   }
 }
 
 @media (max-width: 768px) {
+  .theme-fab {
+    top: 14px;
+    right: 14px;
+    padding: 8px 10px;
+  }
+
+  .theme-fab-label {
+    display: none;
+  }
+
   .hero-title {
     font-size: 42px;
   }
@@ -1197,8 +1396,22 @@ onMounted(() => {
     gap: 24px;
   }
 
+  .stat-value {
+    font-size: 30px;
+  }
+
   .section-title {
-    font-size: 36px;
+    font-size: 34px;
+  }
+
+  .section-header {
+    margin-bottom: 48px;
+  }
+
+  .features,
+  .how-to-use,
+  .pricing {
+    padding: 80px 6%;
   }
 
   .features-grid {

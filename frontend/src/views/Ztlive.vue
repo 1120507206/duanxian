@@ -200,9 +200,9 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
   min-width: 130px;
   padding: 15px 16px;
   border: 1px solid var(--color-border);
-  border-top: 2px solid #64748b;
+  border-top: 2px solid var(--color-border-light);
   border-radius: 9px;
-  background: linear-gradient(135deg, rgba(20, 30, 48, 0.96), rgba(16, 24, 39, 0.92));
+  background: var(--color-bg-card);
 }
 
 .summary-card span,

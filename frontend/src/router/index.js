@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   {
+    // 站点根路径导向营销落地页（Landing）。营销页自带深色视觉、无侧边栏，
+    // 首屏不挂 AppLayout，因此不会出现「先闪侧边栏再跳走」的问题。
     path: '/',
     name: 'landing',
     component: () => import('@/views/Landing.vue'),
@@ -9,8 +11,8 @@ const routes = [
   },
   {
     path: '/app',
-    // 原首页重定向到 /app，保留所有功能路由
-    redirect: '/ztlive',
+    // 原首页重定向到 /app，现在首页语义指向 /home
+    redirect: '/home',
   },
   {
     path: '/home',

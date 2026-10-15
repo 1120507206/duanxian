@@ -1,10 +1,12 @@
 <script setup>
-import { nextTick, onMounted, onBeforeUnmount, ref } from 'vue'
+import { nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useMarketStore } from '@/stores/market'
+import { useThemeStore } from '@/stores/theme'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 
 const store = useMarketStore()
+const themeStore = useThemeStore()
 const fupanDate = ref(dayjs().format('YYYY-MM-DD'))
 const chartRef = ref(null)
 let chart = null
@@ -12,13 +14,16 @@ let chart = null
 function initChart() {
   if (!chartRef.value || !store.fupanData.sentiment?.length) return
 
+  const isDark = themeStore.isDark
+  const axisColor = isDark ? '#8fa0b8' : '#5b6b82'
+
   chart?.dispose()
-  chart = echarts.init(chartRef.value, 'dark')
+  chart = echarts.init(chartRef.value, isDark ? 'dark' : undefined)
   chart.setOption({
     tooltip: { trigger: 'axis' },
     grid: { top: 10, right: 20, bottom: 10, left: 42 },
-    xAxis: { type: 'category', data: store.fupanData.sentiment.map(s => s.time), axisLabel: { fontSize: 10, color: '#8fa0b8' } },
-    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { fontSize: 10, color: '#8fa0b8' } },
+    xAxis: { type: 'category', data: store.fupanData.sentiment.map(s => s.time), axisLabel: { fontSize: 10, color: axisColor } },
+    yAxis: { type: 'value', min: 0, max: 100, axisLabel: { fontSize: 10, color: axisColor } },
     series: [{
       type: 'line', data: store.fupanData.sentiment.map(s => s.value), smooth: true,
       areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -54,6 +59,14 @@ async function resetToToday() {
 onMounted(async () => {
   await loadFupanView(fupanDate.value)
 })
+
+// 主题切换时重建图表，保证坐标轴文字与背景协调。
+watch(
+  () => themeStore.isDark,
+  () => {
+    initChart()
+  },
+)
 onBeforeUnmount(() => chart?.dispose())
 </script>
 
@@ -165,8 +178,8 @@ onBeforeUnmount(() => chart?.dispose())
 .fupan-stats { display: flex; gap: 14px; margin-bottom: 18px; }
 .fp-stat {
   flex: 1;
-  background: linear-gradient(135deg, #141e30, #1a2740);
-  border: 1px solid #1e3a5f;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 14px;
   display: flex;
@@ -174,7 +187,7 @@ onBeforeUnmount(() => chart?.dispose())
   gap: 12px;
   transition: all 0.3s;
 }
-.fp-stat:hover { border-color: #253d5f; transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.fp-stat:hover { border-color: var(--color-border-light); transform: translateY(-2px); box-shadow: var(--shadow-card-hover); }
 
 .fp-stat-icon {
   width: 36px; height: 36px; border-radius: 8px;
@@ -186,7 +199,7 @@ onBeforeUnmount(() => chart?.dispose())
 .stat-zb .fp-stat-icon { background: linear-gradient(135deg, #f97316, #ea580c); }
 .stat-fb .fp-stat-icon { background: linear-gradient(135deg, #06b6d4, #0891b2); }
 
-.fp-stat-label { display: block; font-size: 11px; color: #8fa0b8; margin-bottom: 2px; }
+.fp-stat-label { display: block; font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
 .fp-stat-value { font-size: 22px; font-weight: 800; }
 
 .fp-plate-list { display: flex; flex-direction: column; gap: 4px; }
@@ -194,10 +207,10 @@ onBeforeUnmount(() => chart?.dispose())
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 10px; border-radius: 6px; transition: background 0.15s;
 }
-.fp-plate-item:hover { background: rgba(255,255,255,0.02); }
+.fp-plate-item:hover { background: var(--color-bg-card-hover); }
 .fp-plate-main { display: flex; align-items: center; gap: 12px; }
-.fp-plate-name { font-weight: 600; color: #e8edf5; }
-.fp-plate-leader { font-size: 12px; color: #8fa0b8; }
+.fp-plate-name { font-weight: 600; color: var(--color-text-primary); }
+.fp-plate-leader { font-size: 12px; color: var(--color-text-secondary); }
 
 .fp-bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
