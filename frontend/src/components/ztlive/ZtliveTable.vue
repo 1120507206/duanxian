@@ -22,7 +22,6 @@ defineEmits(['sort-change'])
   <el-table
     v-loading="loading"
     element-loading-text="数据更新中…"
-    element-loading-background="rgba(15, 23, 42, 0.55)"
     :data="rows"
     size="small"
     stripe
@@ -78,6 +77,12 @@ defineEmits(['sort-change'])
 </template>
 
 <style scoped>
+/* 加载遮罩底色跟随主题，避免浅色下盖上一层深色蒙版 */
+:deep(.el-loading-mask) {
+  background-color: var(--color-bg-card);
+  opacity: 0.72;
+}
+
 .stock-name {
   color: var(--color-text-primary);
   font-weight: 700;
@@ -91,10 +96,12 @@ defineEmits(['sort-change'])
   padding: 3px 6px;
   border-radius: 4px;
   background: rgba(249, 115, 22, 0.16);
-  color: #fdba74;
+  color: #c2410c;
   font-size: 11px;
   font-weight: 700;
 }
+
+html.dark .board-pill { color: #fdba74; }
 
 .muted-value { color: var(--color-text-muted); }
 </style>

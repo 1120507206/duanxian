@@ -102,11 +102,11 @@ function onPreview() {
 }
 
 .voice-test-btn {
-  border: 1px solid rgba(248, 113, 113, 0.45);
+  border: 1px solid var(--color-border);
   border-radius: 5px;
   padding: 4px 10px;
-  background: rgba(239, 68, 68, 0.12);
-  color: #fca5a5;
+  background: var(--color-bg-card);
+  color: var(--color-rise);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -115,8 +115,8 @@ function onPreview() {
 }
 
 .voice-test-btn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(248, 113, 113, 0.7);
+  background: var(--color-rise-soft);
+  border-color: var(--color-rise);
 }
 
 .voice-test-btn:disabled { opacity: 0.6; cursor: default; }
@@ -136,8 +136,8 @@ function onPreview() {
   transition: all 0.16s ease;
 }
 
-.voice-more-btn:hover { color: #fca5a5; border-color: rgba(248, 113, 113, 0.6); }
-.voice-more-btn.is-live { color: #4ade80; border-color: rgba(34, 197, 94, 0.45); }
+.voice-more-btn:hover { color: var(--color-rise); border-color: var(--color-rise); }
+.voice-more-btn.is-live { color: var(--color-fall); border-color: var(--color-fall); }
 
 .voice-panel-row {
   display: flex;

@@ -154,12 +154,18 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
 
 .embed-stale {
   padding: 2px 6px;
-  border: 1px solid rgba(251, 191, 36, 0.45);
+  border: 1px solid rgba(202, 138, 4, 0.5);
   border-radius: 4px;
-  background: rgba(251, 191, 36, 0.1);
-  color: #fbbf24;
+  background: rgba(202, 138, 4, 0.1);
+  color: #a16207;
   font-size: 11px;
   white-space: nowrap;
+}
+
+html.dark .embed-stale {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
 }
 
 .embed-actions {
@@ -172,7 +178,7 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
   border: 1px solid var(--color-border);
   border-radius: 5px;
   padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-card);
   color: var(--color-text-secondary);
   font: inherit;
   font-size: 12px;
@@ -197,7 +203,7 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
   padding: 4px 9px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
-  background: rgba(20, 30, 48, 0.9);
+  background: var(--color-bg-card);
   color: var(--color-text-secondary);
   font-size: 12px;
 }
@@ -210,10 +216,12 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
 }
 
 .stat i { font-style: normal; font-size: 11px; }
-.stat-blown b { color: #4ade80; }
-.stat-total b { color: #f97316; }
-.stat-height b { color: #38bdf8; }
-.stat-rate b { color: #facc15; }
+.stat-blown b { color: var(--color-fall); }
+.stat-total b { color: var(--color-accent); }
+.stat-height b { color: #2563eb; }
+.stat-rate b { color: #ca8a04; }
+html.dark .stat-height b { color: #38bdf8; }
+html.dark .stat-rate b { color: #facc15; }
 
 .embed-filters {
   display: flex;
@@ -233,10 +241,10 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
 }
 
 .plate-chip {
-  border: 1px solid rgba(90, 110, 136, 0.55);
+  border: 1px solid var(--color-border);
   border-radius: 5px;
   padding: 3px 8px;
-  background: rgba(90, 110, 136, 0.1);
+  background: var(--color-bg-card);
   color: var(--color-text-secondary);
   cursor: pointer;
   font: inherit;
@@ -244,16 +252,16 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
   transition: all 0.16s ease;
 }
 
-.plate-chip b { margin-left: 4px; color: #f87171; font-size: 11px; }
-.plate-chip i { margin-left: 3px; color: #4ade80; font-size: 11px; font-style: normal; }
+.plate-chip b { margin-left: 4px; color: var(--color-rise); font-size: 11px; }
+.plate-chip i { margin-left: 3px; color: var(--color-fall); font-size: 11px; font-style: normal; }
 .plate-chip:hover,
 .plate-chip.active {
-  border-color: rgba(248, 113, 113, 0.65);
-  background: rgba(239, 68, 68, 0.13);
-  color: #fca5a5;
+  border-color: var(--color-rise);
+  background: var(--color-rise-soft);
+  color: var(--color-rise);
 }
 
-.plate-chip-all b { color: #f97316; }
+.plate-chip-all b { color: var(--color-accent); }
 
 .filter-tools {
   display: flex;

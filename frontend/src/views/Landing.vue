@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import {
   Notification,
   Link as LinkIcon,
@@ -121,14 +122,48 @@ const pricingPlans = [
   },
 ]
 
-function copyLink() {
+/**
+ * 复制「涨停播报 · 独立页」链接（/ztlive.html）。
+ * 独立页无侧边栏、独立打包，是给通达信等面板嵌入用的地址。
+ * 带成功 / 失败两种反馈，失败时降级为手动选中的 textarea 复制。
+ */
+async function copyLink() {
   const link = `${siteUrl.value}/ztlive.html`
-  navigator.clipboard.writeText(link).then(() => {
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(link)
+    } else {
+      // 非安全上下文（http）或无 Clipboard API 时的兜底方案
+      const textarea = document.createElement('textarea')
+      textarea.value = link
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+
     copySuccess.value = true
+    ElMessage({
+      type: 'success',
+      message: '独立页链接已复制，可直接粘贴到通达信自定义页面',
+      duration: 2600,
+      showClose: true,
+    })
     setTimeout(() => {
       copySuccess.value = false
     }, 2000)
-  })
+  } catch (error) {
+    console.warn('[landing] 复制独立页链接失败:', error)
+    ElMessage({
+      type: 'error',
+      message: '复制失败，请手动复制：' + link,
+      duration: 4000,
+      showClose: true,
+    })
+  }
 }
 
 function goToZtlive() {
