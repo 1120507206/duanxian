@@ -12,18 +12,22 @@ const disclaimerVisible = ref(localStorage.getItem('duanxian:riskAccepted') !== 
 let timerId = null
 let stopNotify = null
 
+// 当前只推「涨停播报」一个功能：hidden 的入口保留在代码里（路由照旧可访问），
+// 等其它功能上线时把 hidden 去掉即可，不用改模板。
 const menuItems = [
-  { path: '/', label: '首页', icon: 'HomeFilled' },
   { path: '/ztlive', label: '涨停播报', icon: 'Notification' },
-  { path: '/lianban', label: '连板排行', icon: 'TrendCharts' },
-  { path: '/longhu', label: '龙虎榜', icon: 'Trophy' },
-  { path: '/jingjia', label: '集合竞价', icon: 'Timer' },
-  { path: '/zijin', label: '资金流向', icon: 'Money' },
-  { path: '/zixuan', label: '自选股', icon: 'Star' },
-  { path: '/fupan', label: '每日复盘', icon: 'DataAnalysis' },
-  { path: '/status', label: '状态中心', icon: 'Monitor' },
-  { path: '/about', label: '风险说明', icon: 'WarningFilled' },
+  { path: '/home', label: '首页', icon: 'HomeFilled', hidden: true },
+  { path: '/lianban', label: '连板排行', icon: 'TrendCharts', hidden: true },
+  { path: '/longhu', label: '龙虎榜', icon: 'Trophy', hidden: true },
+  { path: '/jingjia', label: '集合竞价', icon: 'Timer', hidden: true },
+  { path: '/zijin', label: '资金流向', icon: 'Money', hidden: true },
+  { path: '/zixuan', label: '自选股', icon: 'Star', hidden: true },
+  { path: '/fupan', label: '每日复盘', icon: 'DataAnalysis', hidden: true },
+  { path: '/status', label: '状态中心', icon: 'Monitor', hidden: true },
+  { path: '/about', label: '风险说明', icon: 'WarningFilled', hidden: true },
 ]
+
+const visibleMenuItems = computed(() => menuItems.filter((item) => !item.hidden))
 
 const marketOpen = computed(() => isTradingTime(now.value))
 const marketStatusText = computed(() => getMarketStatusText(now.value))
@@ -73,7 +77,7 @@ onBeforeUnmount(() => {
 
       <nav class="sidebar-nav">
         <router-link
-          v-for="item in menuItems"
+          v-for="item in visibleMenuItems"
           :key="item.path"
           :to="item.path"
           class="nav-item"
@@ -90,7 +94,7 @@ onBeforeUnmount(() => {
           <span class="status-dot" :class="{ closed: !marketOpen }" />
           <span class="status-text">{{ marketStatusText }}</span>
         </div>
-        <div class="sidebar-version">v1.0.0</div>
+        <a class="sidebar-version" href="/ztlive.html" target="_blank" rel="noopener">独立页</a>
       </div>
     </aside>
 
@@ -270,7 +274,11 @@ onBeforeUnmount(() => {
 .sidebar-version {
   font-size: 10px;
   color: #5a6e88;
+  text-decoration: none;
+  transition: color 0.16s ease;
 }
+
+.sidebar-version:hover { color: #f87171; }
 
 .main-content {
   flex: 1;

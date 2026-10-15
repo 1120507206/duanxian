@@ -3,6 +3,17 @@ import { createRouter, createWebHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
+    name: 'landing',
+    component: () => import('@/views/Landing.vue'),
+    meta: { title: '短线侠 - A股短线交易工具' },
+  },
+  {
+    path: '/app',
+    // 原首页重定向到 /app，保留所有功能路由
+    redirect: '/ztlive',
+  },
+  {
+    path: '/home',
     name: 'home',
     component: () => import('@/views/Home.vue'),
     meta: { title: '首页 - 短线侠' },

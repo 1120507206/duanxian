@@ -1,158 +1,40 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { fetchZtlive } from '@/api'
+import { computed } from 'vue'
+import { formatClock } from '@/utils/ztliveFormat'
+import { ZTLIVE_STALE_WARN_SECONDS, useZtliveFeed } from '@/composables/useZtliveFeed'
+import { useZtVoice } from '@/composables/useZtVoice'
+import VoiceSwitch from '@/components/ztlive/VoiceSwitch.vue'
+import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
 
-const REFRESH_INTERVAL = 5000
-
-const initialLoading = ref(true)
-const refreshing = ref(false)
-const errorText = ref('')
-const payload = ref({ list: [], plates: [], summary: null })
-const activePlate = ref('')
-const hideUnselected = ref(false)
-const searchText = ref('')
-const sortState = ref({ prop: 'firstTime', order: 'descending' })
-const lastUpdatedAt = ref('')
-let timerId = null
-
-const summary = computed(() => payload.value.summary || {
-  total: 0,
-  sealed: 0,
-  blown: 0,
-  sealRate: 0,
-  maxBoard: 0,
+// 数据与语音两块能力都抽成组合式函数，站点页和通达信独立页共用同一份口径。
+const voice = useZtVoice()
+const feed = useZtliveFeed({
+  // 每次快照都交给语音引擎做增量对比：首屏只播种，之后新出现的涨停 / 炸板才播报。
+  onSnapshot: (list) => voice.handleSnapshot(list),
 })
 
-const dataDate = computed(() => payload.value.date || '--')
-const isEmpty = computed(() => !initialLoading.value && !payload.value.list.length && !errorText.value)
+const {
+  initialLoading,
+  refreshing,
+  errorText,
+  payload,
+  activePlate,
+  hideUnselected,
+  searchText,
+  lastUpdatedAt,
+  staleSeconds,
+  summary,
+  dataDate,
+  isEmpty,
+  filteredRows,
+  visibleCountText,
+  selectPlate,
+  onSortChange,
+  loadData,
+} = feed
 
-const filteredRows = computed(() => {
-  const keyword = searchText.value.trim().toLowerCase()
-  let rows = payload.value.list
-
-  if (activePlate.value && hideUnselected.value) {
-    rows = rows.filter((row) => row.plate === activePlate.value)
-  }
-
-  if (keyword) {
-    rows = rows.filter((row) => (
-      String(row.name).toLowerCase().includes(keyword)
-      || String(row.code).toLowerCase().includes(keyword)
-      || String(row.topic).toLowerCase().includes(keyword)
-    ))
-  }
-
-  const { prop, order } = sortState.value
-  if (!prop || !order) return rows
-
-  return [...rows].sort((a, b) => {
-    const left = sortableValue(a, prop)
-    const right = sortableValue(b, prop)
-    let result = 0
-
-    if (typeof left === 'number' && typeof right === 'number') {
-      result = (Number.isFinite(left) ? left : -Infinity) - (Number.isFinite(right) ? right : -Infinity)
-    } else {
-      result = String(left).localeCompare(String(right), 'zh-CN', { numeric: true })
-    }
-
-    return order === 'ascending' ? result : -result
-  })
-})
-
-const visibleCountText = computed(() => {
-  const total = payload.value.list.length
-  const visible = filteredRows.value.length
-  return total === visible ? `${total} 条` : `${visible} / ${total} 条`
-})
-
-function sortableValue(row, prop) {
-  const numericProps = new Set([
-    'pct', 'auctionPct', 'boardNumber', 'price', 'sealAmount', 'amount', 'turnoverRate', 'floatMarketCap',
-  ])
-  if (numericProps.has(prop)) return Number(row[prop])
-  return row[prop] ?? ''
-}
-
-function formatNumber(value, digits = 2) {
-  const number = Number(value)
-  return Number.isFinite(number) ? number.toFixed(digits) : '--'
-}
-
-function formatPercent(value) {
-  const number = Number(value)
-  if (!Number.isFinite(number)) return '--'
-  return `${number >= 0 ? '+' : ''}${number.toFixed(2)}%`
-}
-
-function formatMoneyFromYuan(value) {
-  const number = Number(value)
-  if (!Number.isFinite(number)) return '--'
-  if (Math.abs(number) >= 100000000) return `${(number / 100000000).toFixed(2)}亿`
-  return `${Math.round(number / 10000)}万`
-}
-
-function formatMarketCap(value) {
-  const number = Number(value)
-  if (!Number.isFinite(number)) return '--'
-  if (Math.abs(number) >= 100000000000) return `${(number / 100000000000).toFixed(1)}千亿`
-  return `${(number / 100000000).toFixed(1)}亿`
-}
-
-function formatUpdatedAt(value = lastUpdatedAt.value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-function selectPlate(name) {
-  activePlate.value = activePlate.value === name ? '' : name
-}
-
-function onSortChange({ prop, order }) {
-  sortState.value = { prop, order }
-}
-
-async function loadData({ manual = false } = {}) {
-  if (refreshing.value) return
-  refreshing.value = true
-  errorText.value = ''
-
-  try {
-    const next = await fetchZtlive()
-    payload.value = {
-      date: next?.date || '--',
-      list: Array.isArray(next?.list) ? next.list : [],
-      plates: Array.isArray(next?.plates) ? next.plates : [],
-      summary: next?.summary || null,
-    }
-    lastUpdatedAt.value = next?.timestamp || new Date().toISOString()
-  } catch (error) {
-    errorText.value = error.response?.data?.error || '涨停播报暂时无法加载，请检查后端和数据源连接'
-    if (manual) ElMessage.error(errorText.value)
-  } finally {
-    initialLoading.value = false
-    refreshing.value = false
-  }
-}
-
-function startPolling() {
-  timerId = window.setInterval(() => {
-    if (document.visibilityState === 'visible') loadData()
-  }, REFRESH_INTERVAL)
-}
-
-onMounted(async () => {
-  await loadData()
-  startPolling()
-})
-
-onBeforeUnmount(() => {
-  if (timerId) window.clearInterval(timerId)
-})
+const formatUpdatedAt = (value = lastUpdatedAt.value) => formatClock(value)
+const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
 </script>
 
 <template>
@@ -167,7 +49,9 @@ onBeforeUnmount(() => {
         <div class="data-meta">
           <span>数据日期 {{ dataDate }}</span>
           <span>更新于 {{ formatUpdatedAt() }}</span>
+          <span v-if="isStale" class="stale-hint">数据已 {{ staleSeconds }} 秒未更新，请检查后端与数据源</span>
         </div>
+        <VoiceSwitch :rows="payload.list" />
         <el-button size="small" :loading="refreshing" @click="loadData({ manual: true })">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -244,7 +128,7 @@ onBeforeUnmount(() => {
       <div class="table-toolbar">
         <div>
           <span class="section-title">个股明细</span>
-          <span class="section-caption">{{ visibleCountText }} · 每 5 秒自动刷新</span>
+          <span class="section-caption">{{ visibleCountText }} · 每 3 秒自动刷新</span>
         </div>
         <span class="source-label">数据源：第三方公开行情快照</span>
       </div>
@@ -252,55 +136,7 @@ onBeforeUnmount(() => {
       <el-alert v-if="errorText" :title="errorText" type="error" show-icon :closable="false" class="ztlive-alert" />
       <el-skeleton v-else-if="initialLoading" :rows="8" animated />
       <el-empty v-else-if="isEmpty" description="当前没有涨停播报数据" />
-      <el-table
-        v-else
-        v-loading="refreshing"
-        element-loading-text="数据更新中…"
-        element-loading-background="rgba(15, 23, 42, 0.55)"
-        :data="filteredRows"
-        size="small"
-        stripe
-        row-key="id"
-        height="calc(100vh - 430px)"
-        min-height="360"
-        @sort-change="onSortChange"
-      >
-        <el-table-column prop="name" label="股票" min-width="105" fixed="left">
-          <template #default="{ row }"><span class="stock-name">{{ row.name }}</span></template>
-        </el-table-column>
-        <el-table-column prop="code" label="代码" width="78" />
-        <el-table-column prop="status" label="状态" width="70" sortable="custom">
-          <template #default="{ row }"><span :class="row.status === '涨停' ? 'text-rise' : 'text-fall'">{{ row.status }}</span></template>
-        </el-table-column>
-        <el-table-column prop="boardNumber" label="连板" width="88" sortable="custom">
-          <template #default="{ row }"><span class="board-pill">{{ row.board }}</span></template>
-        </el-table-column>
-        <el-table-column prop="pct" label="涨幅" width="78" sortable="custom">
-          <template #default="{ row }"><span class="text-rise">{{ formatPercent(row.pct) }}</span></template>
-        </el-table-column>
-        <el-table-column prop="sealAmount" label="封单" width="86" sortable="custom">
-          <template #default="{ row }"><span :class="row.status === '涨停' ? 'text-rise' : 'muted-value'">{{ row.sealAmountText }}</span></template>
-        </el-table-column>
-        <el-table-column prop="firstTime" label="首封" width="86" sortable="custom" />
-        <el-table-column prop="plate" label="板块" min-width="105" show-overflow-tooltip />
-        <el-table-column prop="price" label="价格" width="76" sortable="custom">
-          <template #default="{ row }">{{ formatNumber(row.price) }}</template>
-        </el-table-column>
-        <el-table-column prop="auctionPct" label="竞价涨幅" width="100" sortable="custom">
-          <template #default="{ row }"><span :class="Number(row.auctionPct) >= 0 ? 'text-rise' : 'text-fall'">{{ formatPercent(row.auctionPct) }}</span></template>
-        </el-table-column>
-        <el-table-column prop="amount" label="成交额" width="88" sortable="custom">
-          <template #default="{ row }">{{ row.amountText || formatMoneyFromYuan(row.amount) }}</template>
-        </el-table-column>
-        <el-table-column prop="endTime" label="终封" width="86" sortable="custom" />
-        <el-table-column prop="turnoverRate" label="换手" width="76" sortable="custom">
-          <template #default="{ row }">{{ formatPercent(row.turnoverRate) }}</template>
-        </el-table-column>
-        <el-table-column prop="floatMarketCap" label="流通市值" width="100" sortable="custom">
-          <template #default="{ row }">{{ formatMarketCap(row.floatMarketCap) }}</template>
-        </el-table-column>
-        <el-table-column prop="topic" label="题材" min-width="150" show-overflow-tooltip />
-      </el-table>
+      <ZtliveTable v-else :rows="filteredRows" :loading="refreshing" @sort-change="onSortChange" />
     </section>
   </div>
 </template>
@@ -349,6 +185,8 @@ onBeforeUnmount(() => {
   font-size: 12px;
   white-space: nowrap;
 }
+
+.stale-hint { color: #fbbf24; }
 
 .summary-strip {
   display: flex;
@@ -505,26 +343,6 @@ onBeforeUnmount(() => {
 .ztlive-alert {
   margin-bottom: 12px;
 }
-
-.stock-name {
-  color: var(--color-text-primary);
-  font-weight: 700;
-}
-
-.board-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 36px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: rgba(249, 115, 22, 0.16);
-  color: #fdba74;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.muted-value { color: var(--color-text-muted); }
 
 @media (max-width: 900px) {
   .filter-topline,

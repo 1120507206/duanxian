@@ -5,7 +5,8 @@ import * as logger from '../utils/logger.js'
 const REQUEST_TIMEOUT_MS = 8000
 const RETRIES = 2
 const CACHE_KEY = 'ztlive:all'
-const FRESH_WINDOW_MS = 5000
+// 上游快照约每 3 秒重写一次；窗口给 1.5 秒就够，先前的 5 秒会和前端 5 秒轮询叠乘成 ~10 秒的滞后。
+const FRESH_WINDOW_MS = 1500
 
 function toNumber(value, fallback = 0) {
   const number = Number(value)
@@ -176,10 +177,17 @@ export async function getZtliveCached() {
 
   if (entry && Date.now() - entry.fetchedAt < FRESH_WINDOW_MS) return entry.data
 
-  if (entry) {
-    loadSnapshot().catch((error) => logger.warn('ztlive_refresh_failed', { error }))
-    return entry.data
+  // 过期时**等这次抓取**再返回，而不是「先回旧数据、后台再刷新」——
+  // 后者会让每个前端轮询都固定晚一轮，页面上就是「永远比数据源慢一拍」。
+  // loadSnapshot 内部单飞：并发请求共享同一次上游抓取，不会放大请求量。
+  try {
+    return await loadSnapshot()
+  } catch (error) {
+    if (entry) {
+      // 上游临时抽风时宁可给一份带时间戳的旧快照，也不要把页面打成错误页。
+      logger.warn('ztlive_refresh_failed_serving_stale', { error })
+      return entry.data
+    }
+    throw error
   }
-
-  return loadSnapshot()
 }
