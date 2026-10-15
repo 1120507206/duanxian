@@ -11,7 +11,8 @@ const TTL_CONFIG = {
   quotes: 3,
   kline: 600,
   fupan: 300,
-  ztlive: 5,
+  // 涨停播报存的是 stale 副本，新鲜度由 ztliveService 的 5s 窗口判定
+  ztlive: 60,
 }
 
 const cache = new NodeCache({ checkperiod: 10 })

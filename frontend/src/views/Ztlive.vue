@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
         >
           {{ plate.name }} <b>{{ plate.count }}</b><i v-if="plate.blown">:{{ plate.blown }}</i>
         </button>
-        <span v-if="!loading && !payload.plates.length" class="empty-inline">暂无板块统计</span>
+        <span v-if="!initialLoading && !payload.plates.length" class="empty-inline">暂无板块统计</span>
       </div>
     </section>
 

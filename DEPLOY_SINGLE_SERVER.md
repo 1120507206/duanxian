@@ -257,6 +257,7 @@ chmod +x /var/www/duanxian/deploy/scripts/deploy-single-server.sh
 - `pm2 status` 显示在线
 - `pm2 logs duanxian-api` 能看到后端日志
 - `sudo nginx -t` 无错误
+- 缓存头分工正确：`curl -I http://域名/` 返回 `Cache-Control: no-cache`；`curl -I` 一个 `/assets/*.js` 返回 `public, max-age=604800, immutable`；访问不存在的资产返回 `404` 且**没有** `Cache-Control`（否则 404 会被缓存 7 天）。
 - 备份脚本可执行
 - 恢复脚本至少在测试备份上演练一次
 - 浏览器首次访问会显示风险提示

@@ -1,0 +1,11 @@
+name: duanxian-rehearsal
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/rehearsal/Dockerfile
+    container_name: duanxian-rehearsal
+    ports:
+      - "127.0.0.1:8099:80"
+    restart: unless-stopped

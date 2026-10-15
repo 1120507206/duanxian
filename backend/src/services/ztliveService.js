@@ -1,8 +1,11 @@
 import config from '../config/index.js'
+import * as cache from './cacheService.js'
 import * as logger from '../utils/logger.js'
 
 const REQUEST_TIMEOUT_MS = 8000
 const RETRIES = 2
+const CACHE_KEY = 'ztlive:all'
+const FRESH_WINDOW_MS = 5000
 
 function toNumber(value, fallback = 0) {
   const number = Number(value)
@@ -30,6 +33,25 @@ function getBoardNumber(boardLabel, lianban) {
   return matched ? Number(matched[1]) : 0
 }
 
+// 上游有两种形态：成功 {result:'success',list,date} 与正常空态 {code:0,msg:'待开盘',date}。
+// 其余一律抛出，否则页面会把上游故障渲染成"0 家涨停"。
+function assertUpstreamOk(data) {
+  if (!data || typeof data !== 'object') throw new Error('涨停播报数据源返回格式异常')
+
+  if (data.result === 'success') {
+    if (!Array.isArray(data.list)) throw new Error('涨停播报数据源缺少 list 字段')
+    return
+  }
+
+  if (typeof data.result === 'string') {
+    throw new Error(data.message || `涨停播报数据源返回失败: ${data.result}`)
+  }
+
+  if (data.code === 0) return
+
+  throw new Error(data.msg || data.message || `涨停播报数据源返回异常: code=${data.code}`)
+}
+
 async function fetchSnapshot() {
   let lastError
 
@@ -48,9 +70,7 @@ async function fetchSnapshot() {
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
-      if (data?.result && data.result !== 'success') {
-        throw new Error(data.message || '涨停播报数据源返回失败')
-      }
+      assertUpstreamOk(data)
       return data
     } catch (error) {
       lastError = error
@@ -133,4 +153,33 @@ export async function getZtlive() {
       maxBoard,
     },
   }
+}
+
+let pending = null
+
+function loadSnapshot() {
+  if (!pending) {
+    pending = getZtlive()
+      .then((data) => {
+        cache.set(CACHE_KEY, { data, fetchedAt: Date.now() }, 'ztlive')
+        return data
+      })
+      .finally(() => {
+        pending = null
+      })
+  }
+  return pending
+}
+
+export async function getZtliveCached() {
+  const entry = cache.get(CACHE_KEY)
+
+  if (entry && Date.now() - entry.fetchedAt < FRESH_WINDOW_MS) return entry.data
+
+  if (entry) {
+    loadSnapshot().catch((error) => logger.warn('ztlive_refresh_failed', { error }))
+    return entry.data
+  }
+
+  return loadSnapshot()
 }
