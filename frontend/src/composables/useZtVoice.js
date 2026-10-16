@@ -7,17 +7,24 @@ import { computed, ref } from 'vue'
  * - 开关状态持久化到 localStorage，跨页面 / 刷新保持；
  * - 首屏快照只「播种」不播报，只有页面加载后**新增**的涨停 / 炸板才出声，
  *   避免一进页面把当天几十只票全部念一遍；
- * - 文案口径与旧站一致：`${名称} 封涨停板，${连板}${题材}`；
- * - 若服务端某行带 readurl（mp3 hash，旧站音源），优先播 mp3；没有则用浏览器语音合成。
+ * - 文案口径与旧站一致：`${名称} 封涨停板，${连板}${题材}`。
+ *
+ * ── 音源 ──
+ * 完全用浏览器自带的语音合成（Web Speech API），**不使用上游接口下发的音频地址**。
+ * 两个原因：① 上游音频地址只存在于封板推送报文里，属于对方私有资源，依赖它等于把
+ * 播报能力绑在别人的资源上；② 语音合成不产生额外网络请求，断流时播报照样出声。
+ * 后端在规范化行情时也会把音频字段直接剔掉，链路上不存在这个依赖。
+ *
+ * ── 两条播报入口 ──
+ * - `handlePush`：封板事件流直达，封板瞬间出声 —— 主路径；
+ * - `handleSnapshot`：快照增量对比，兜底路径（事件流不可用时页面仍有播报，
+ *   代价是慢一个轮询周期；两条路都用同一套 seenKeys 去重，不会念两遍）。
  *
  * 为什么是模块级单例：站点页和通达信独立页是两个入口，单例保证「已播报过的票」
  * 和「设置」在切换页面 / 两种宿主之间不重置。
  */
 
 const STORAGE_KEY = 'duanxian:ztlive:voice:v1'
-
-/** 旧站 mp3 音源域名（后端下发 readurl 时使用，与 duanxianxai-vue3 一致） */
-export const ZT_AUDIO_BASE = 'https://bm.duanxianxia.com'
 
 const DEFAULTS = {
   enabled: false,
@@ -147,14 +154,6 @@ function stopAll() {
   }
 }
 
-/** 裸 hash → 完整 mp3 地址（与 duanxianxai-vue3 的 buildZtReadUrl 同口径） */
-export function buildZtReadUrl(readurl) {
-  const value = String(readurl || '').trim()
-  if (!value) return ''
-  if (/^https?:\/\//i.test(value)) return value
-  return `${ZT_AUDIO_BASE}/static/upload/read/${value.replace(/\.mp3$/i, '')}.mp3`
-}
-
 const EMPTY_LABELS = new Set(['', '--', '其他', '未知'])
 
 /** 播报文案：`${名称} 封涨停板，${连板}${题材}`（与旧站逐字一致） */
@@ -176,6 +175,18 @@ let lastSpeakAt = 0
 let lastSpeakKey = ''
 let switchSettling = false
 
+/**
+ * 语音播报的权益门闩（付费墙砌在这里）。
+ *
+ * 由外部通过 setEntitlement 注入，取值来自后端 /api/ztlive 下发的 entitlements。
+ * 为什么模块级而不是从 store 里读：本文件要保持与 Pinia 解耦 —— 站点页、独立页、
+ * 未来的小程序壳都复用它，不能假设调用方一定装了 store。
+ *
+ * 注意这里只是「防止直接改 localStorage 白嫖」的兜底。真正的权益判定在后端，
+ * 前端永远只是镜像。
+ */
+let entitled = false
+
 function acceptAnnouncement(key) {
   const now = Date.now()
   if (key === lastSpeakKey && now - lastSpeakAt < 1500) return false
@@ -184,43 +195,59 @@ function acceptAnnouncement(key) {
   return true
 }
 
+/** 事件去重键：同一只票「炸板后回封」会带新的 firstTime，因此会被当成新事件播报 */
+const eventKey = (row) => `${row?.code || ''}|${row?.status || ''}|${row?.firstTime || ''}`
+
 /**
- * mp3 音源（后端下发 readurl 时优先用旧站同款音色，失败回落语音合成）。
- * 当前后端快照还不带 readurl，这条分支属于预留：字段一到位就自动生效。
+ * 播报前的统一闸门：开关 → 权益 → 分类开关 → 去重。
+ * 快照路径和事件路径共用这一套，否则两边的判定迟早会分叉。
  */
-function playAudioUrl(url, fallbackText = '') {
-  try {
-    const audio = new Audio(url)
-    audio.volume = Math.min(1, Math.max(0, Number(settings.value.volume) ?? 1))
-    audio.play().catch(() => {
-      if (fallbackText) enqueue(fallbackText)
-    })
-    return true
-  } catch (_) {
-    if (fallbackText) enqueue(fallbackText)
-    return false
-  }
-}
+function tryAnnounce(row) {
+  if (!settings.value.enabled) return false
+  // 权益门闩：非会员即使把 localStorage 里的 enabled 改成 true 也不会出声。
+  // 试听（preview）不经过这里，所以未付费用户始终能听到示例播报 —— 那是转化钩子，必须免费。
+  if (!entitled) return false
 
-function announce(row, text) {
-  const readurl = buildZtReadUrl(row?.readurl || row?.audio || '')
-  if (readurl) {
-    playAudioUrl(readurl, text)
-    return
-  }
-  enqueue(text)
+  const sealed = row?.status === '涨停'
+  if (sealed && !settings.value.announceSealed) return false
+  if (!sealed && !settings.value.announceBlown) return false
+
+  const key = eventKey(row)
+  if (!acceptAnnouncement(key)) return false
+
+  return enqueue(sealed ? buildZtSpeechText(row) : buildBlownSpeechText(row))
 }
 
 /**
- * 拿快照做增量对比：首次调用只登记不播报，之后新增的行才播报。
- * key 带上 firstTime，因此「炸板后回封」会被当成新事件播报。
+ * 封板 / 炸板事件直达（主路径，来自实时事件流）。
+ *
+ * 与快照路径共享同一本 seenKeys 账，两个方向都靠它去重：
+ *   · 事件先到 → 登记；紧接着的快照把它当「已见过」，不再念第二遍；
+ *   · 快照先到（事件流断过）→ 已经念过；随后补发的同一条事件不再念；
+ *   · 上游重发 / 断线补发同一条封板 → 直接跳过。
+ *
+ * 注意判重键带 firstTime，所以「炸板后回封」是新键、会正常播报 ——
+ * 这里去重的是「同一次封板事件被送达多次」，不是「同一只票只能播一次」。
+ */
+function handlePush(row) {
+  if (!row?.code) return false
+  const key = eventKey(row)
+  if (seenKeys.has(key)) return false
+  seenKeys.add(key)
+  return tryAnnounce(row)
+}
+
+/**
+ * 拿快照做增量对比（兜底路径）：首次调用只登记不播报，之后新增的行才播报。
+ * 事件流正常工作时，这里的「新增」基本都已经被 handlePush 登记过，不会出声；
+ * 事件流不可用时，它就顶上，代价是慢一个轮询周期。
  */
 function handleSnapshot(list = []) {
   const rows = Array.isArray(list) ? list : []
   const fresh = []
 
   rows.forEach((row) => {
-    const key = `${row?.code || ''}|${row?.status || ''}|${row?.firstTime || ''}`
+    const key = eventKey(row)
     if (seenKeys.has(key)) return
     seenKeys.add(key)
     fresh.push(row)
@@ -231,15 +258,7 @@ function handleSnapshot(list = []) {
     return
   }
 
-  if (!settings.value.enabled) return
-
-  fresh.forEach((row) => {
-    const sealed = row?.status === '涨停'
-    if (sealed && !settings.value.announceSealed) return
-    if (!sealed && !settings.value.announceBlown) return
-    const text = sealed ? buildZtSpeechText(row) : buildBlownSpeechText(row)
-    if (acceptAnnouncement(`${row?.code}|${row?.status}|${row?.firstTime}`)) announce(row, text)
-  })
+  fresh.forEach((row) => tryAnnounce(row))
 }
 
 function resetSeen() {
@@ -259,9 +278,12 @@ export function useZtVoice() {
 
   function setEnabled(value) {
     const next = Boolean(value)
+    // 非会员不允许开启（UI 会先拦一道，这里是兜底）
+    if (next && !entitled) return false
+
     // ElSwitch 同一轮可能连发两次同值事件（组件内 model-value 是异步更新的），
     // 不拦一下「语音播报已开启」会被念两遍。
-    if (next === settings.value.enabled || switchSettling) return
+    if (next === settings.value.enabled || switchSettling) return true
     switchSettling = true
     queueMicrotask(() => {
       switchSettling = false
@@ -275,6 +297,27 @@ export function useZtVoice() {
     } else {
       stopAll()
     }
+    return true
+  }
+
+  /**
+   * 注入会员权益。由页面在拿到 /api/ztlive 的 entitlements 后调用。
+   *
+   * 会员过期时会把开关一起关掉，否则会出现「已经过期了但页面还在念」的诡异状态，
+   * 用户会以为自己还有权益，等发现时体验更差。
+   */
+  function setEntitlement(allowed) {
+    const next = Boolean(allowed)
+    if (next === entitled) return
+    entitled = next
+
+    if (!next) {
+      stopAll()
+      if (settings.value.enabled) {
+        settings.value.enabled = false
+        writeSettings(settings.value)
+      }
+    }
   }
 
   function updateSettings(patch = {}) {
@@ -287,7 +330,7 @@ export function useZtVoice() {
     primeOnce()
     const row = (Array.isArray(rows) ? rows : []).find((item) => item?.status === '涨停')
     if (row) {
-      announce(row, buildZtSpeechText(row))
+      enqueue(buildZtSpeechText(row))
       return
     }
     enqueue('示例播报，东方财富 封涨停板，2板，金融科技')
@@ -303,8 +346,10 @@ export function useZtVoice() {
     engineStatus,
     speechSupported,
     setEnabled,
+    setEntitlement,
     updateSettings,
     preview,
+    handlePush,
     handleSnapshot,
     resetSeen,
     stopAll,

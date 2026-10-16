@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getAdminToken } from '@/utils/adminToken'
 
 const routes = [
   {
@@ -69,16 +70,94 @@ const routes = [
     meta: { title: '上线状态中心 - 短线侠' },
   },
   {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: '登录 / 注册 - 短线侠', public: true },
+  },
+  {
+    path: '/activate',
+    name: 'activate',
+    component: () => import('@/views/Activate.vue'),
+    meta: { title: '开通会员 - 短线侠' },
+  },
+  {
     path: '/about',
     name: 'about',
     component: () => import('@/views/About.vue'),
     meta: { title: '数据与风险说明 - 短线侠' },
+  },
+  // ========== 运营后台 ==========
+  // 后台与前台共用同一个 SPA 构建产物：部署时 Nginx 的 try_files 已经把
+  // /admin/* 兜到 index.html，不需要额外配置。所有后台页面都是懒加载，
+  // 普通用户访问站点不会下载到后台的代码。
+  {
+    path: '/admin/login',
+    name: 'admin-login',
+    component: () => import('@/views/admin/AdminLogin.vue'),
+    meta: { title: '后台登录 - 短线侠运营后台', public: true },
+  },
+  {
+    path: '/admin',
+    component: () => import('@/views/admin/AdminLayout.vue'),
+    redirect: '/admin/overview',
+    children: [
+      {
+        path: 'overview',
+        name: 'admin-overview',
+        component: () => import('@/views/admin/AdminOverview.vue'),
+        meta: { title: '运营概览 - 短线侠后台' },
+      },
+      {
+        path: 'users',
+        name: 'admin-users',
+        component: () => import('@/views/admin/AdminUsers.vue'),
+        meta: { title: '用户管理 - 短线侠后台' },
+      },
+      {
+        path: 'orders',
+        name: 'admin-orders',
+        component: () => import('@/views/admin/AdminOrders.vue'),
+        meta: { title: '订单管理 - 短线侠后台' },
+      },
+      {
+        path: 'codes',
+        name: 'admin-codes',
+        component: () => import('@/views/admin/AdminCodes.vue'),
+        meta: { title: '激活码管理 - 短线侠后台' },
+      },
+      {
+        path: 'logs',
+        name: 'admin-logs',
+        component: () => import('@/views/admin/AdminLogs.vue'),
+        meta: { title: '操作日志 - 短线侠后台' },
+      },
+    ],
   },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+/**
+ * 后台路由守卫。
+ *
+ * 这里只做「本地有没有 token」这一层检查 —— 它快，且能在没有网络时立刻跳转。
+ * token 到底还有没有效，由 AdminLayout 进页面后调 /api/admin/me 复核，
+ * 那一步拿到 401 才会清 token 并踢回登录页。
+ *
+ * 这样分工的原因：如果守卫里发起网络请求，每次后台内跳转都要等一次往返，
+ * 断网时甚至会卡在登录页出不去。
+ */
+router.beforeEach((to) => {
+  if (!String(to.path).startsWith('/admin')) return true
+  if (to.name === 'admin-login') return true
+  if (!getAdminToken()) {
+    return { name: 'admin-login', query: { redirect: to.fullPath } }
+  }
+  return true
 })
 
 router.afterEach((to) => {

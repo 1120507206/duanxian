@@ -1,7 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { InfoFilled } from '@element-plus/icons-vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { InfoFilled, Lock, Promotion } from '@element-plus/icons-vue'
 import { useZtVoice } from '@/composables/useZtVoice'
+import { useUserStore } from '@/stores/user'
+import { track } from '@/utils/track'
+import MemberGateDialog from '@/components/member/MemberGateDialog.vue'
 
 const props = defineProps({
   /** 当前快照行，试听时优先念最近一条真实涨停 */
@@ -9,39 +12,94 @@ const props = defineProps({
 })
 
 const voice = useZtVoice()
+const userStore = useUserStore()
 const { settings, engineReady, engineStatus } = voice
 const testing = ref(false)
+const gateVisible = ref(false)
 
-const switchDisabled = computed(() => !voice.speechSupported())
+/** 语音引擎本身不可用（老内核 / 无中文音色）时才真正禁用；会员与否用拦截而不是禁用 */
+const engineUnavailable = computed(() => !voice.speechSupported())
+const isMember = computed(() => userStore.canUseVoice)
+
+/**
+ * 开关状态与会员状态双向同步到语音引擎。
+ * 这里是「前端镜像 → 引擎门闩」的唯一入口，避免门闩漏设。
+ */
+watch(
+  isMember,
+  (value) => voice.setEntitlement(value),
+  { immediate: true },
+)
 
 function onToggle(value) {
+  if (value && !isMember.value) {
+    // 不禁用开关、而是拦截点击：用户点得动才看得到付费引导，
+    // 一个灰掉不可点的开关只会让人以为功能坏了。
+    gateVisible.value = true
+    track('pay_click', { scene: 'voice_switch' })
+    return
+  }
   voice.setEnabled(value)
+  track(value ? 'voice_on' : 'voice_off', { member: isMember.value })
 }
 
 function onPreview() {
   testing.value = true
   voice.preview(props.rows)
+  // 试听对所有人免费 —— 它是转化钩子：先让人听到价值，再谈付费
+  track('voice_preview', { member: isMember.value })
   window.setTimeout(() => {
     testing.value = false
   }, 1200)
 }
+
+function openGate() {
+  gateVisible.value = true
+}
+
+onMounted(() => {
+  if (!userStore.ready) userStore.bootstrap()
+})
 </script>
 
 <template>
   <div class="voice-controls">
+    <button
+      v-if="!isMember"
+      type="button"
+      class="voice-lock-chip"
+      title="语音播报是会员功能，点击了解"
+      @click="openGate"
+    >
+      <el-icon><Lock /></el-icon>
+      <span>语音会员</span>
+    </button>
+    <button
+      v-else
+      type="button"
+      class="voice-member-chip"
+      title="点击续费，会员时长从原到期日叠加"
+      @click="openGate"
+    >
+      <el-icon><Promotion /></el-icon>
+      <span>{{ userStore.daysLeft }} 天 · 续费</span>
+    </button>
+
     <button type="button" class="voice-test-btn" :disabled="testing" @click="onPreview">
       {{ testing ? '试听中' : '试听' }}
     </button>
+
     <el-switch
       class="voice-switch"
       :model-value="settings.enabled"
-      :disabled="switchDisabled"
+      :disabled="engineUnavailable"
       inline-prompt
       active-text="语音开"
       inactive-text="语音关"
       @update:model-value="onToggle"
     />
-    <el-popover placement="bottom-end" :width="230" trigger="click" popper-class="zt-voice-popper">
+
+    <el-popover placement="bottom-end" :width="240" trigger="click" popper-class="zt-voice-popper">
       <template #reference>
         <button type="button" class="voice-more-btn" :class="{ 'is-live': engineReady }">
           <el-icon><InfoFilled /></el-icon>
@@ -91,6 +149,8 @@ function onPreview() {
         </p>
       </div>
     </el-popover>
+
+    <MemberGateDialog v-model="gateVisible" scene="voice_switch" />
   </div>
 </template>
 
@@ -99,6 +159,44 @@ function onPreview() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.voice-lock-chip,
+.voice-member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.16s ease;
+}
+
+.voice-lock-chip {
+  background: var(--color-bg-card);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.voice-lock-chip:hover {
+  color: var(--color-rise);
+  border-color: var(--color-rise);
+  background: var(--color-rise-soft);
+}
+
+.voice-member-chip {
+  background: var(--color-rise-soft);
+  color: var(--color-rise);
+  cursor: pointer;
+}
+
+.voice-member-chip:hover {
+  filter: brightness(0.96);
 }
 
 .voice-test-btn {
@@ -160,4 +258,3 @@ function onPreview() {
   line-height: 1.6;
 }
 </style>
-

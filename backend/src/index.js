@@ -12,8 +12,19 @@ import fupanRoutes from './routes/fupan.js'
 import klineRoutes from './routes/kline.js'
 import healthRoutes from './routes/health.js'
 import ztliveRoutes from './routes/ztlive.js'
+import userRoutes from './routes/user.js'
+import eventRoutes from './routes/event.js'
+import authRoutes, { purgeSessions } from './routes/auth.js'
+import payRoutes from './routes/pay.js'
+import adminRoutes from './routes/admin.js'
 import db from './db/index.js'
 import { rateLimit, securityHeaders } from './middleware/security.js'
+import { attachSession } from './middleware/session.js'
+import * as pay from './services/payService.js'
+import * as sms from './services/smsService.js'
+import * as admin from './services/adminService.js'
+import * as ztliveSocket from './services/ztliveSocketService.js'
+import * as ztliveStream from './services/ztliveStreamService.js'
 import * as logger from './utils/logger.js'
 
 // 首次启动自动初始化种子数据
@@ -34,6 +45,8 @@ app.use(cors({
 app.use(morgan('dev'))
 app.use(securityHeaders)
 app.use(rateLimit)
+// 认证头要在路由之前解析：行情接口也要按登录态下发权益
+app.use(attachSession)
 app.use(express.json({ limit: '1mb' }))
 
 // 路由
@@ -47,6 +60,34 @@ app.use('/api/fupan', fupanRoutes)
 app.use('/api/kline', klineRoutes)
 app.use('/api/health', healthRoutes)
 app.use('/api/ztlive', ztliveRoutes)
+app.use('/api/user', userRoutes)
+app.use('/api/event', eventRoutes)
+app.use('/api/auth', authRoutes)
+app.use('/api/pay', payRoutes)
+// 运营后台。所有接口都在 requireAdmin 之后，未登录一律 401；
+// 未初始化管理员时连 /login 也只回「请先执行 npm run admin init」。
+app.use('/api/admin', adminRoutes)
+
+/**
+ * 定期清理：过期会话、过期验证码、超时未付款订单。
+ * 这三张表都是写多读少的流水表，不清理会长成慢查询的来源。
+ */
+const HOUSEKEEPING_INTERVAL_MS = 6 * 60 * 60 * 1000
+function housekeeping() {
+  try {
+    const sessions = purgeSessions()
+    const codes = sms.purgeExpiredCodes()
+    const orders = pay.expireOrders()
+    const adminSessions = admin.purgeExpiredAdminSessions()
+    if (sessions || codes || orders || adminSessions) {
+      logger.info('housekeeping', { sessions, codes, orders, adminSessions })
+    }
+  } catch (error) {
+    logger.error('housekeeping_failed', { message: error.message })
+  }
+}
+housekeeping()
+setInterval(housekeeping, HOUSEKEEPING_INTERVAL_MS).unref()
 
 app.get('/', (req, res) => {
   res.json({
@@ -75,4 +116,27 @@ app.listen(config.port, () => {
     port: config.port,
     apiBase: `http://localhost:${config.port}/api`,
   })
+
+  // 上游封板事件流：与快照轮询并行跑，互相独立。
+  // 上游不可用时它自己退避重连，不会影响接口可用性。
+  ztliveSocket.start()
 })
+
+/**
+ * 优雅退出：先把 SSE 连接收干净，再断开上游。
+ * 不这么做的话，浏览器要等 TCP 超时才发现服务没了，中间这段时间页面看起来是
+ * 「连着但一直不推」——比直接断开更让人困惑。
+ */
+function shutdown(signal) {
+  logger.info('server_shutdown', { signal })
+  try {
+    ztliveStream.closeAll()
+    ztliveSocket.stop()
+  } catch (error) {
+    logger.warn('server_shutdown_cleanup_failed', { message: error.message })
+  }
+  process.exit(0)
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'))
+process.once('SIGTERM', () => shutdown('SIGTERM'))

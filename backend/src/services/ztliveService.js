@@ -90,15 +90,35 @@ async function fetchSnapshot() {
   throw lastError || new Error('涨停播报数据源不可用')
 }
 
-function normalizeRow(item, index) {
+/**
+ * 行映射的两种口径。
+ *
+ * `snapshot`：全量快照用。快照里 `fund`（封单额）是可靠字段，`fund <= 0` 即可判为炸板。
+ *
+ * `event`：封板事件推送用。**不能用 fund 判炸板** —— 推送恰好在封板那一瞬间到达，
+ * 此时 `fund` 常常还没写进报文，用快照口径会把刚封板的票判成"炸板"，播报就变成了
+ * "XX 炸板"。这是上游时序决定的，不是偶发：旧站踩过同一个坑，代码里专门写了警告。
+ * 所以事件口径只看 `zhaban`。
+ */
+const BLOW_RULE = {
+  snapshot: (item, fund) => toNumber(item?.zhaban, 0) > 0 || fund <= 0,
+  event: (item) => toNumber(item?.zhaban, 0) > 0,
+}
+
+function buildRow(item, index, rule) {
   const fund = toNumber(item?.fund, 0)
-  const isBlown = toNumber(item?.zhaban, 0) > 0 || fund <= 0
+  const isBlown = BLOW_RULE[rule](item, fund)
   const boardLabel = toText(item?.bannum || item?.zt || item?.ztnum, '--')
   const lianban = toNumber(item?.lianban, 0)
+  const code = toText(item?.code, '--')
 
   return {
-    id: `${toText(item?.code, 'unknown')}-${index}`,
-    code: toText(item?.code, '--'),
+    // 用股票代码做行标识，而不是「代码-序号」：
+    // ① 快照里列表顺序一变（排序、上游重排），序号键就整体错位，el-table 会把所有行
+    //    当成新行重建，正在打的闪烁和滚动位置全丢；
+    // ② 事件推送与快照讲的是同一只票，键一致才能原地更新而不是插出重复行。
+    id: code === '--' ? `row-${index}` : code,
+    code,
     name: toText(item?.name, '--'),
     status: isBlown ? '炸板' : '涨停',
     board: boardLabel,
@@ -118,6 +138,31 @@ function normalizeRow(item, index) {
     topic: toText(item?.ztyy || item?.concept, '--'),
     convertibleBond: item?.zhai || null,
   }
+}
+
+/**
+ * 全量快照 → 行。字段**白名单式**重建，上游报文里多出来的字段（包括音频地址 readurl）
+ * 一律不透传：语音播报用的是本地语音合成，不依赖上游音源。
+ */
+export function normalizeRow(item, index = 0) {
+  return buildRow(item, index, 'snapshot')
+}
+
+/**
+ * 封板事件推送 → 行。
+ *
+ * 事件报文与快照字段名基本一致，但时间字段上游有两种写法（`ftime` / `time`），
+ * 连板数也可能放在 `ztnum` 里，这里统一抹平后再走同一套映射 —— 保证事件生成的行
+ * 与快照生成的行结构完全一致，前端可以直接合并，不需要两套渲染逻辑。
+ */
+export function normalizeEventRow(item, index = 0) {
+  if (!item || typeof item !== 'object') return null
+
+  return buildRow({
+    ...item,
+    zt: item.zt ?? item.ztnum,
+    ftime: item.ftime ?? item.time,
+  }, index, 'event')
 }
 
 function buildPlateStats(rows) {

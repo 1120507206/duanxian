@@ -1,17 +1,42 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { formatClock } from '@/utils/ztliveFormat'
 import { ZTLIVE_STALE_WARN_SECONDS, useZtliveFeed } from '@/composables/useZtliveFeed'
+import { REALTIME_STATUS_TEXT } from '@/composables/useZtliveSocket'
 import { useZtVoice } from '@/composables/useZtVoice'
+import { useUserStore } from '@/stores/user'
+import { track } from '@/utils/track'
+import { buildEmbedUrl, copyPlainText } from '@/utils/embedLink'
+import { getChannel } from '@/utils/deviceId'
 import VoiceSwitch from '@/components/ztlive/VoiceSwitch.vue'
 import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
 
 // 数据与语音两块能力都抽成组合式函数，站点页和通达信独立页共用同一份口径。
+const userStore = useUserStore()
 const voice = useZtVoice()
 const feed = useZtliveFeed({
-  // 每次快照都交给语音引擎做增量对比：首屏只播种，之后新出现的涨停 / 炸板才播报。
+  // 主路径：封板事件直达，封板瞬间就出声（事件流不可用时自动由快照兜底）。
+  onZtPush: (row) => voice.handlePush(row),
+  // 兜底路径：每次快照仍交给语音引擎做增量对比 —— 同一只票已在 handlePush 登记过，
+  // 不会重复播报，所以两条路径同时开着是安全的。
   onSnapshot: (list) => voice.handleSnapshot(list),
+  // 权益跟着行情回来，持续校准会员状态（异地激活 / 会员过期都能自动同步）
+  onEntitlements: (entitlements) => {
+    userStore.syncEntitlements(entitlements)
+    voice.setEntitlement(userStore.canUseVoice)
+  },
+  onError: () => track('feed_error', null, { repeat: true }),
 })
+
+onMounted(() => {
+  userStore.bootstrap()
+  track('ztlive_open')
+})
+
+// 身份变了（登录/退出）要重建事件流：订阅地址的 query 里带着 token，
+// 沿用旧连接等于拿着旧身份收流。
+watch(() => userStore.loggedIn, () => feed.restartRealtime())
 
 const {
   initialLoading,
@@ -31,10 +56,44 @@ const {
   selectPlate,
   onSortChange,
   loadData,
+  realtimeStatus,
+  lastPushAt,
 } = feed
 
 const formatUpdatedAt = (value = lastUpdatedAt.value) => formatClock(value)
 const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
+
+const realtimeText = computed(() => REALTIME_STATUS_TEXT[realtimeStatus.value] || '实时通道状态未知')
+const realtimeTitle = computed(() => {
+  const upstream = REALTIME_STATUS_TEXT[realtimeStatus.value] || ''
+  const last = lastPushAt.value ? `最近推送 ${formatClock(new Date(lastPushAt.value))}` : '本次会话尚未收到封板推送'
+  return `${upstream} · ${last}`
+})
+
+/**
+ * 复制「通达信独立页」地址 —— 用户要在通达信自定义面板 / 插件里填的就是这个链接。
+ * 地址按当前域名实时拼（本地开发 / 线上域名都对）；用户自带渠道码时才附上，否则给干净地址。
+ */
+async function copyEmbedLink() {
+  const link = buildEmbedUrl(getChannel())
+  try {
+    await copyPlainText(link)
+    track('copy_link', { scene: 'ztlive_page' })
+    ElMessage({
+      type: 'success',
+      message: '通达信链接已复制，粘贴到通达信自定义页面即可',
+      duration: 2600,
+      showClose: true,
+    })
+  } catch (_) {
+    ElMessage({
+      type: 'warning',
+      message: `复制失败，请手动复制：${link}`,
+      duration: 6000,
+      showClose: true,
+    })
+  }
+}
 </script>
 
 <template>
@@ -51,7 +110,14 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
           <span>更新于 {{ formatUpdatedAt() }}</span>
           <span v-if="isStale" class="stale-hint">数据已 {{ staleSeconds }} 秒未更新，请检查后端与数据源</span>
         </div>
+        <span class="realtime-chip" :class="`is-${realtimeStatus}`" :title="realtimeTitle">
+          <i class="realtime-dot"></i>{{ realtimeText }}
+        </span>
         <VoiceSwitch :rows="payload.list" />
+        <el-button size="small" @click="copyEmbedLink">
+          <el-icon><CopyDocument /></el-icon>
+          复制通达信链接
+        </el-button>
         <el-button size="small" :loading="refreshing" @click="loadData({ manual: true })">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -187,6 +253,42 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
 }
 
 .stale-hint { color: #fbbf24; }
+
+/* 实时通道状态：绿点=已连接，黄点=连接中/断开（会自动重连），灰点=未启用 */
+.realtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.realtime-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+
+.realtime-chip.is-open { color: #16a34a; border-color: rgba(22, 163, 74, 0.4); }
+.realtime-chip.is-open .realtime-dot { background: #22c55e; }
+.realtime-chip.is-connecting { color: #ca8a04; border-color: rgba(202, 138, 4, 0.4); }
+.realtime-chip.is-connecting .realtime-dot { background: #eab308; }
+.realtime-chip.is-closed { color: #ca8a04; border-color: rgba(202, 138, 4, 0.4); }
+.realtime-chip.is-closed .realtime-dot { background: #eab308; }
+.realtime-chip.is-disabled,
+.realtime-chip.is-unsupported,
+.realtime-chip.is-idle { color: var(--color-text-muted); }
+
+html.dark .realtime-chip.is-open { color: #4ade80; }
+html.dark .realtime-chip.is-connecting,
+html.dark .realtime-chip.is-closed { color: #fbbf24; }
 
 .summary-strip {
   display: flex;

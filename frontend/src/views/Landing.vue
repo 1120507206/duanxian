@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -17,6 +17,10 @@ import {
   Moon,
 } from '@element-plus/icons-vue'
 import { useThemeStore } from '@/stores/theme'
+import { fetchZtlive, fetchPlans } from '@/api'
+import { MEMBER_CONFIG } from '@/config/member'
+import { track } from '@/utils/track'
+import { buildShareUrl, getChannel } from '@/utils/deviceId'
 
 const router = useRouter()
 const themeStore = useThemeStore()
@@ -33,7 +37,9 @@ const features = [
   {
     icon: Notification,
     title: '实时涨停播报',
-    description: '毫秒级追踪涨停板与炸板，第一时间掌握市场最强音',
+    // 原为「毫秒级追踪」。实测端到端是 3~4 秒（上游快照约 3 秒一写），
+    // 宣传口径必须与实现一致 —— 宁可低报，也不要被用户当场打脸。
+    description: '秒级追踪涨停板与炸板，第一时间掌握市场最强音',
     accent: 'linear-gradient(135deg, #ef4444 0%, #f97316 100%)',
   },
   {
@@ -62,8 +68,10 @@ const features = [
   },
   {
     icon: Timer,
-    title: '历史回溯',
-    description: '完整记录当日涨停数据，随时复盘分析',
+    title: '炸板即时提示',
+    // 原为「历史回溯」，但后端目前只代理当日快照、没有历史查询接口。
+    // 改成真正已实现的能力，避免为不存在的功能做宣传。
+    description: '封板被打开立刻转为炸板状态，不错过情绪转折',
     accent: 'linear-gradient(135deg, #dc2626 0%, #e11d48 100%)',
   },
 ]
@@ -86,41 +94,85 @@ const steps = [
   },
 ]
 
-const pricingPlans = [
-  {
-    name: '月度会员',
-    price: '19.9',
-    period: '月',
-    description: '灵活选择，按需订阅',
-    features: [
-      '实时涨停播报',
-      '语音播报功能',
-      '板块筛选',
-      '嵌入通达信',
-      '复制链接分享',
-      '历史数据回溯',
-    ],
-    highlighted: false,
-  },
-  {
-    name: '年度会员',
-    price: '299',
-    period: '年',
-    originalPrice: '238.8',
-    description: '超值推荐，节省 25%',
-    features: [
-      '实时涨停播报',
-      '语音播报功能',
-      '板块筛选',
-      '嵌入通达信',
-      '复制链接分享',
-      '历史数据回溯',
-      '优先技术支持',
-      '新功能抢先体验',
-    ],
-    highlighted: true,
-  },
-]
+/**
+ * 套餐定义从后端下发（/api/user/plans），前端不硬编码价格 ——
+ * 之前定价写死在这里，结果出现「年付 299 却标节省 25%」而实际 12×19.9=238.8 的矛盾。
+ * 单一事实来源放在后端 config/plans.js，这类错误就不会再发生。
+ */
+const plans = ref([])
+const plansLoading = ref(true)
+
+const monthPlan = computed(() => plans.value.find((plan) => plan.key === 'month') || null)
+
+/** 折合月单价，用于给出可比的锚点 */
+function monthlyEquivalent(plan) {
+  if (!plan?.durationDays) return 0
+  return Math.round((plan.price / plan.durationDays) * 30)
+}
+
+/** 相对「按月买」省下的比例。没有月付基准时返回 0，不编造数字。 */
+function savingPercent(plan) {
+  const base = monthPlan.value
+  if (!base?.durationDays || !plan?.durationDays) return 0
+  const monthlyTotal = (base.price / base.durationDays) * plan.durationDays
+  if (!monthlyTotal) return 0
+  const saved = Math.round((1 - plan.price / monthlyTotal) * 100)
+  return saved > 0 ? saved : 0
+}
+
+function isRecommended(plan) {
+  return plan?.key === 'year'
+}
+
+/**
+ * 实时行情统计。
+ *
+ * 这里原本是硬编码的「10000+ 活跃用户 / 5000+ 日均追踪 / 99% 数据准确率」——
+ * 三个都无法举证，既触《广告法》虚假宣传，又会在用户发现后一次性赔掉全部信任。
+ * 换成今天真实的涨停数据：既 100% 属实，又顺手证明了「数据是活的」，
+ * 比任何营销数字都有说服力。
+ */
+const liveStats = ref(null)
+const liveStatsFailed = ref(false)
+
+const statItems = computed(() => {
+  const s = liveStats.value
+  if (!s) return []
+  return [
+    { value: String(s.sealed ?? 0), unit: '家', label: '今日涨停' },
+    { value: String(s.blown ?? 0), unit: '家', label: '今日炸板' },
+    { value: `${s.sealRate ?? 0}`, unit: '%', label: '封板率' },
+    { value: s.maxBoard ? String(s.maxBoard) : '--', unit: '板', label: '最高连板' },
+  ]
+})
+
+async function loadLiveStats() {
+  try {
+    const data = await fetchZtlive()
+    if (data?.summary) {
+      liveStats.value = data.summary
+      tracked.value = data.summary.total > 0
+    } else {
+      liveStatsFailed.value = true
+    }
+  } catch (_) {
+    // 非交易时段或上游波动都算正常，静默降级即可，不在营销页弹错误提示
+    liveStatsFailed.value = true
+  }
+}
+
+async function loadPlans() {
+  try {
+    const data = await fetchPlans()
+    plans.value = Array.isArray(data?.plans) ? data.plans : []
+  } catch (_) {
+    plans.value = []
+  } finally {
+    plansLoading.value = false
+  }
+}
+
+const tracked = ref(false)
 
 /**
  * 复制「涨停播报 · 独立页」链接（/ztlive.html）。
@@ -128,7 +180,9 @@ const pricingPlans = [
  * 带成功 / 失败两种反馈，失败时降级为手动选中的 textarea 复制。
  */
 async function copyLink() {
-  const link = `${siteUrl.value}/ztlive.html`
+  // 复制出去的链接带上来源码：别人通过它打开时会被归因到同一条链路上。
+  // 没有现成渠道时退化成 share，至少能把「分享带来的用户」和自然流量分开统计。
+  const link = buildShareUrl(`${siteUrl.value}/ztlive.html`, getChannel() || 'share')
 
   try {
     if (navigator.clipboard?.writeText) {
@@ -146,6 +200,7 @@ async function copyLink() {
     }
 
     copySuccess.value = true
+    track('copy_link', { scene: 'landing' })
     ElMessage({
       type: 'success',
       message: '独立页链接已复制，可直接粘贴到通达信自定义页面',
@@ -167,56 +222,23 @@ async function copyLink() {
 }
 
 function goToZtlive() {
+  track('page_view', { scene: 'landing_cta' })
   router.push('/ztlive')
+}
+
+function goToActivate() {
+  track('pay_click', { scene: 'landing_pricing' })
+  router.push('/activate')
 }
 
 function toggleTheme() {
   themeStore.toggle()
 }
 
-// Animated counter
-const counters = ref({
-  users: 0,
-  stocks: 0,
-  accuracy: 0,
-})
-
-let counterTimer = null
-
 onMounted(() => {
-  const duration = 2000
-  const steps = 60
-  const interval = duration / steps
-
-  const targets = {
-    users: 10000,
-    stocks: 5000,
-    accuracy: 99,
-  }
-
-  let current = 0
-  counterTimer = setInterval(() => {
-    current++
-    const progress = current / steps
-
-    counters.value.users = Math.floor(targets.users * progress)
-    counters.value.stocks = Math.floor(targets.stocks * progress)
-    counters.value.accuracy = Math.floor(targets.accuracy * progress)
-
-    if (current >= steps) {
-      clearInterval(counterTimer)
-      counterTimer = null
-      counters.value = targets
-    }
-  }, interval)
-})
-
-// 顶层清理：语义正确，组件卸载时清除计数器定时器。
-onBeforeUnmount(() => {
-  if (counterTimer) {
-    clearInterval(counterTimer)
-    counterTimer = null
-  }
+  track('page_view', { scene: 'landing' })
+  loadLiveStats()
+  loadPlans()
 })
 </script>
 
@@ -247,7 +269,7 @@ onBeforeUnmount(() => {
       <div class="hero-content">
         <div class="hero-badge">
           <Promotion class="badge-icon" />
-          <span>推广期免费体验</span>
+          <span>免费版直接可用，无需注册</span>
         </div>
 
         <h1 class="hero-title">
@@ -271,20 +293,18 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <!-- 真实行情数据：既属实，又顺手证明了「数据是活的」 -->
         <div class="hero-stats">
-          <div class="stat-item">
-            <div class="stat-value">{{ counters.users.toLocaleString() }}+</div>
-            <div class="stat-label">活跃用户</div>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <div class="stat-value">{{ counters.stocks.toLocaleString() }}+</div>
-            <div class="stat-label">日均追踪</div>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <div class="stat-value">{{ counters.accuracy }}%</div>
-            <div class="stat-label">数据准确率</div>
+          <template v-if="statItems.length">
+            <div v-for="item in statItems" :key="item.label" class="stat-item">
+              <div class="stat-value">
+                {{ item.value }}<i class="stat-unit">{{ item.unit }}</i>
+              </div>
+              <div class="stat-label">{{ item.label }}</div>
+            </div>
+          </template>
+          <div v-else class="stat-empty">
+            {{ liveStatsFailed ? '非交易时段，开盘后数据自动更新' : '正在读取今日行情…' }}
           </div>
         </div>
       </div>
@@ -389,29 +409,43 @@ onBeforeUnmount(() => {
         <div class="section-header">
           <div class="promo-badge">
             <Promotion class="promo-icon" />
-            <span>推广期限时免费</span>
+            <span>免费版无需注册</span>
           </div>
-          <h2 class="section-title">选择适合你的方案</h2>
-          <p class="section-subtitle">推广期间所有功能免费使用</p>
+          <h2 class="section-title">看表免费，语音收费</h2>
+          <p class="section-subtitle">
+            涨停明细、板块统计、涨停原因全部免费；会员解锁语音播报，让新涨停自己出声
+          </p>
         </div>
 
-        <div class="pricing-grid">
+        <div v-if="plansLoading" class="pricing-loading">正在读取套餐…</div>
+
+        <div v-else-if="!plans.length" class="pricing-loading">
+          套餐信息暂时不可用，可直接前往
+          <a href="#" @click.prevent="goToActivate">开通页</a> 查看
+        </div>
+
+        <div v-else class="pricing-grid">
           <div
-            v-for="(plan, index) in pricingPlans"
-            :key="index"
+            v-for="plan in plans"
+            :key="plan.key"
             class="pricing-card"
-            :class="{ highlighted: plan.highlighted }"
+            :class="{ highlighted: isRecommended(plan) }"
           >
-            <div v-if="plan.highlighted" class="pricing-badge">推荐</div>
+            <div v-if="isRecommended(plan)" class="pricing-badge">推荐</div>
             <h3 class="pricing-name">{{ plan.name }}</h3>
             <div class="pricing-price">
               <span class="price-currency">¥</span>
               <span class="price-amount">{{ plan.price }}</span>
-              <span class="price-period">/{{ plan.period }}</span>
+              <span class="price-period">/{{ plan.durationDays }}天</span>
             </div>
-            <p class="pricing-description">{{ plan.description }}</p>
+            <p class="pricing-description">
+              折合 ¥{{ monthlyEquivalent(plan) }}/月
+              <span v-if="savingPercent(plan) > 0" class="price-saving">
+                比按月买省 {{ savingPercent(plan) }}%
+              </span>
+            </p>
             <ul class="pricing-features">
-              <li v-for="(feature, fIndex) in plan.features" :key="fIndex">
+              <li v-for="(feature, index) in MEMBER_CONFIG.memberFeatures" :key="index">
                 <span class="feature-check">
                   <Check class="feature-check-svg" />
                 </span>
@@ -420,12 +454,29 @@ onBeforeUnmount(() => {
             </ul>
             <button
               class="pricing-btn"
-              :class="{ 'btn-highlighted': plan.highlighted }"
-              @click="goToZtlive"
+              :class="{ 'btn-highlighted': isRecommended(plan) }"
+              @click="goToActivate"
             >
-              立即体验
+              去开通
             </button>
           </div>
+        </div>
+
+        <!-- 免费版说明：把「不要钱也能用」说透，转化率反而更高 -->
+        <div class="pricing-free-note">
+          <div class="free-note-head">
+            <span class="free-note-tag">免费版</span>
+            <span class="free-note-desc">不付费也能一直用，包含：</span>
+          </div>
+          <ul class="free-note-list">
+            <li v-for="(item, index) in MEMBER_CONFIG.freeFeatures" :key="index">
+              <span class="feature-check feature-check-muted">
+                <Check class="feature-check-svg feature-check-svg-muted" />
+              </span>
+              <span>{{ item }}</span>
+            </li>
+          </ul>
+          <button class="free-note-btn" @click="goToZtlive">直接开始使用</button>
         </div>
       </div>
     </section>
@@ -454,6 +505,11 @@ onBeforeUnmount(() => {
               <h4 class="link-title">产品</h4>
               <a href="/ztlive" class="link-item">涨停播报</a>
               <a href="/ztlive.html" class="link-item">独立页面</a>
+            </div>
+            <div class="link-group">
+              <h4 class="link-title">会员</h4>
+              <a href="/activate" class="link-item">开通会员</a>
+              <a href="/activate" class="link-item">激活码兑换</a>
             </div>
             <div class="link-group">
               <h4 class="link-title">支持</h4>
@@ -720,10 +776,16 @@ html.dark .hero-badge {
   font-weight: 500;
 }
 
-.stat-divider {
-  width: 1px;
-  height: 44px;
-  background: var(--color-border);
+.stat-unit {
+  margin-left: 2px;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.stat-empty {
+  font-size: 14px;
+  color: var(--color-text-muted);
 }
 
 /* ---------- Hero 右侧模拟卡片 ---------- */
@@ -1057,9 +1119,9 @@ html.dark .promo-badge {
 
 .pricing-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 32px;
-  max-width: 800px;
+  max-width: 880px;
   margin: 0 auto;
 }
 
@@ -1140,6 +1202,107 @@ html.dark .promo-badge {
   font-size: 15px;
   color: var(--color-text-secondary);
   margin-bottom: 32px;
+}
+
+.price-saving {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-fall-soft);
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html.dark .price-saving {
+  color: #22c55e;
+}
+
+.pricing-loading {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.pricing-loading a {
+  color: var(--color-rise);
+}
+
+/* ---------- 免费版说明 ---------- */
+.pricing-free-note {
+  max-width: 720px;
+  margin: 48px auto 0;
+  padding: 24px 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-bg-card);
+}
+
+.free-note-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.free-note-tag {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.free-note-desc {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.free-note-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.free-note-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+}
+
+.feature-check-muted {
+  background: var(--color-border);
+}
+
+.feature-check-svg-muted {
+  color: var(--color-text-muted);
+}
+
+.free-note-btn {
+  padding: 11px 24px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-smooth);
+}
+
+.free-note-btn:hover {
+  border-color: var(--color-rise);
+  color: var(--color-rise);
+  background: var(--color-rise-soft);
 }
 
 .pricing-features {

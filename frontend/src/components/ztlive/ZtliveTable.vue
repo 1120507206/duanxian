@@ -16,6 +16,16 @@ defineProps({
 })
 
 defineEmits(['sort-change'])
+
+/**
+ * 事件流推送进来的新行会带 `__fresh` 标记（由 useZtliveFeed 在 6 秒后清除）。
+ * 高亮用行级 class 而不是改单元格内容：单元格是纯数据展示，混入状态会让
+ * 排序、筛选、导出这些后续功能都得额外绕开它。
+ */
+function rowClassName({ row }) {
+  if (!row?.__fresh) return ''
+  return row.status === '涨停' ? 'zt-row-fresh zt-row-fresh-rise' : 'zt-row-fresh zt-row-fresh-fall'
+}
 </script>
 
 <template>
@@ -26,6 +36,7 @@ defineEmits(['sort-change'])
     size="small"
     stripe
     row-key="id"
+    :row-class-name="rowClassName"
     :height="height"
     :min-height="minHeight"
     @sort-change="(payload) => $emit('sort-change', payload)"
@@ -81,6 +92,23 @@ defineEmits(['sort-change'])
 :deep(.el-loading-mask) {
   background-color: var(--color-bg-card);
   opacity: 0.72;
+}
+
+/*
+ * 刚由封板事件推送进来的行：短暂染色，让「哪一只刚封板」一眼可见。
+ *
+ * 必须用 !important —— el-table 的斑马纹规则（.el-table--striped .el-table__body
+ * tr.el-table__row--striped td.el-table__cell）权重是 (0,4,2)，常规选择器压不过它，
+ * 不加会被斑马纹的底色盖掉，表现为「高亮只在部分行生效」。
+ *
+ * 颜色沿用 A 股习惯：涨停=红、炸板=绿。
+ */
+:deep(.el-table__row.zt-row-fresh-rise > td) {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+}
+
+:deep(.el-table__row.zt-row-fresh-fall > td) {
+  background-color: rgba(34, 197, 94, 0.18) !important;
 }
 
 .stock-name {

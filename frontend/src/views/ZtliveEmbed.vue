@@ -1,8 +1,11 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { formatClock } from '@/utils/ztliveFormat'
 import { ZTLIVE_STALE_WARN_SECONDS, useZtliveFeed } from '@/composables/useZtliveFeed'
+import { REALTIME_STATUS_TEXT } from '@/composables/useZtliveSocket'
 import { useZtVoice } from '@/composables/useZtVoice'
+import { useUserStore } from '@/stores/user'
+import { track } from '@/utils/track'
 import VoiceSwitch from '@/components/ztlive/VoiceSwitch.vue'
 import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
 
@@ -12,10 +15,27 @@ import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
  * 与站点页的区别只在「外壳」：没有侧边栏、没有大卡片，全部按窄栏 + 贴边布局，
  * 数据与语音完全复用 useZtliveFeed / useZtVoice，口径与站点页一致。
  */
+const userStore = useUserStore()
 const voice = useZtVoice()
 const feed = useZtliveFeed({
+  // 主路径：封板事件直达，封板瞬间出声。独立页嵌在通达信里，这一档体验最关键。
+  onZtPush: (row) => voice.handlePush(row),
+  // 兜底路径：事件流不可用时页面照样有播报（两条路径共享去重账，不会念两遍）
   onSnapshot: (list) => voice.handleSnapshot(list),
+  onEntitlements: (entitlements) => {
+    userStore.syncEntitlements(entitlements)
+    voice.setEntitlement(userStore.canUseVoice)
+  },
+  onError: () => track('feed_error', null, { repeat: true }),
 })
+
+onMounted(() => {
+  userStore.bootstrap()
+  track('embed_open')
+})
+
+// 身份变化后重建事件流（订阅地址的 query 里带 token，沿用旧连接等于用旧身份收流）
+watch(() => userStore.loggedIn, () => feed.restartRealtime())
 
 const {
   initialLoading,
@@ -35,10 +55,19 @@ const {
   selectPlate,
   onSortChange,
   loadData,
+  realtimeStatus,
+  lastPushAt,
 } = feed
 
 const updatedAtText = computed(() => formatClock(lastUpdatedAt.value))
 const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
+
+const realtimeText = computed(() => REALTIME_STATUS_TEXT[realtimeStatus.value] || '实时通道状态未知')
+const realtimeTitle = computed(() => {
+  const upstream = REALTIME_STATUS_TEXT[realtimeStatus.value] || ''
+  const last = lastPushAt.value ? `最近推送 ${formatClock(new Date(lastPushAt.value))}` : '本次会话尚未收到封板推送'
+  return `${upstream} · ${last}`
+})
 </script>
 
 <template>
@@ -48,6 +77,9 @@ const isStale = computed(() => staleSeconds.value > ZTLIVE_STALE_WARN_SECONDS)
         <span class="embed-title-main">涨停播报</span>
         <span class="embed-title-sub">{{ dataDate }} · 更新 {{ updatedAtText }}</span>
         <span v-if="isStale" class="embed-stale">数据已 {{ staleSeconds }} 秒未更新</span>
+        <span class="realtime-chip" :class="`is-${realtimeStatus}`" :title="realtimeTitle">
+          <i class="realtime-dot"></i>{{ realtimeText }}
+        </span>
       </div>
       <div class="embed-actions">
         <VoiceSwitch :rows="payload.list" />
@@ -167,6 +199,39 @@ html.dark .embed-stale {
   background: rgba(251, 191, 36, 0.1);
   color: #fbbf24;
 }
+
+/* 实时通道状态：绿点=已连接，黄点=连接中/断开（会自动重连），灰点=未启用 */
+.realtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.realtime-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+
+.realtime-chip.is-open { color: #16a34a; border-color: rgba(22, 163, 74, 0.4); }
+.realtime-chip.is-open .realtime-dot { background: #22c55e; }
+.realtime-chip.is-connecting,
+.realtime-chip.is-closed { color: #ca8a04; border-color: rgba(202, 138, 4, 0.4); }
+.realtime-chip.is-connecting .realtime-dot,
+.realtime-chip.is-closed .realtime-dot { background: #eab308; }
+
+html.dark .realtime-chip.is-open { color: #4ade80; }
+html.dark .realtime-chip.is-connecting,
+html.dark .realtime-chip.is-closed { color: #fbbf24; }
 
 .embed-actions {
   display: flex;

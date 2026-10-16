@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getMarketStatusText, isTradingTime } from '@/utils/tradingCalendar'
 import { onNotify } from '@/utils/notify'
 import { useThemeStore } from '@/stores/theme'
+import AccountChip from '@/components/member/AccountChip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +112,7 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <div class="topbar-title">{{ currentTitle }}</div>
         <div class="topbar-actions">
+          <AccountChip />
           <button
             class="theme-toggle"
             type="button"

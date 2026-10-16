@@ -21,6 +21,14 @@ backend/logs/
 backend/data/*.db
 backend/data/*.db-*
 
+# 激活码导出文件：等同于现金，绝不能进版本库（哪怕仓库是私有的，
+# 协作方、CI 日志、fork 都可能把它带出去）。
+# 需要看已发放的码时直接跑 `npm run member list`，不要依赖文件。
+codes.txt
+codes*.txt
+backend/codes.txt
+backend/codes*.txt
+
 # OS/editor files
 .DS_Store
 Thumbs.db

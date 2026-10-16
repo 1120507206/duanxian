@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "seed": "node src/db/seed.js"
+    "seed": "node src/db/seed.js",
+    "member": "node src/scripts/member.js",
+    "admin": "node src/scripts/admin.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",

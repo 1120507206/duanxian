@@ -9,6 +9,21 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 nvm use 22 > /dev/null 2>&1
 
+echo "=== 拉取最新代码 ==="
+cd "$APP_ROOT"
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo "工作区有未提交的改动，为避免覆盖丢失，停止拉取。请先在服务器上处理："
+  git status --short
+  exit 1
+fi
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+REMOTE="$(git config --get "branch.$BRANCH.remote" 2>/dev/null || echo origin)"
+echo "从 $REMOTE 拉取分支 $BRANCH ..."
+git pull --ff-only "$REMOTE" "$BRANCH"
+git log -1 --oneline
+
 echo "=== 启动后端服务 ==="
 cd "$BACKEND_DIR"
 
