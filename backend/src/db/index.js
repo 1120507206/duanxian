@@ -3,7 +3,8 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DB_PATH = path.join(__dirname, '..', '..', 'data', 'duanxian.db')
+// DB_PATH 允许测试/演练使用临时库，避免测试直接写生产数据目录。
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data', 'duanxian.db')
 
 // 确保 data 目录存在
 import fs from 'fs'

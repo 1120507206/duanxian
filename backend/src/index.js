@@ -27,6 +27,39 @@ import * as ztliveSocket from './services/ztliveSocketService.js'
 import * as ztliveStream from './services/ztliveStreamService.js'
 import * as logger from './utils/logger.js'
 
+/**
+ * 生产配置自检。
+ *
+ * 这些组合不会让服务启动失败，但会静默削弱安全性或让用户收不到短信/看不到收款码。
+ * 只打告警而不退出，是为了避免一次误配置把已有服务直接打挂；部署脚本会再校验健康接口。
+ */
+function warnProductionConfiguration() {
+  if (process.env.NODE_ENV !== 'production') return
+
+  const warnings = []
+  if (config.corsOrigin === '*') {
+    warnings.push('CORS_ORIGIN=*：任意站点都能调用 API，生产环境请改成真实前端域名')
+  }
+  if (String(process.env.SMS_DRIVER || 'console').toLowerCase() === 'console') {
+    warnings.push('SMS_DRIVER=console：验证码只会写进日志，用户收不到短信')
+  }
+  if (!process.env.SMS_HASH_SALT) {
+    warnings.push('SMS_HASH_SALT 未设置：正在使用公开的默认盐值')
+  }
+  if (String(process.env.PAY_AUTO_APPROVE || '') === '1') {
+    warnings.push('PAY_AUTO_APPROVE=1：用户点「我已付款」就会自动开通，未经人工核对')
+  }
+
+  const nodeMajor = Number(process.versions.node.split('.')[0])
+  if (config.ztliveWsEnabled && nodeMajor < 22) {
+    warnings.push(`Node ${process.versions.node} 没有全局 WebSocket，封板事件流会降级为纯轮询`)
+  }
+
+  warnings.forEach((message) => logger.warn('config_warning', { message }))
+}
+
+warnProductionConfiguration()
+
 // 首次启动自动初始化种子数据
 const hasData = db.prepare('SELECT COUNT(*) as cnt FROM market_indices').get()
 if (!hasData || hasData.cnt === 0) {
@@ -115,6 +148,8 @@ app.listen(config.port, () => {
   logger.info('server_started', {
     port: config.port,
     apiBase: `http://localhost:${config.port}/api`,
+    node: process.version,
+    websocket: typeof WebSocket !== 'undefined',
   })
 
   // 上游封板事件流：与快照轮询并行跑，互相独立。

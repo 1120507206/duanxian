@@ -118,7 +118,7 @@ async function approve(row) {
 }
 
 async function reject(row) {
-  let reason = ''
+  let reason
   try {
     const result = await ElMessageBox.prompt('填写拒绝原因，会记录在订单备注里', '拒绝该订单', {
       confirmButtonText: '确认拒绝',

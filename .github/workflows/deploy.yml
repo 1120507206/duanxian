@@ -1,13 +1,64 @@
-name: Deploy to Server
+name: Verify and Deploy
 
 on:
   push:
     branches:
       - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# 仓库实际落在服务器哪个目录由这个变量决定。默认沿用现有 CI 路径；
+# 如果服务器用 /var/www/duanxian，在仓库 Settings → Variables 里设置 SERVER_APP_ROOT 即可。
+env:
+  SERVER_APP_ROOT: ${{ vars.SERVER_APP_ROOT || '/home/ubuntu/duanxian' }}
 
 jobs:
-  deploy:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install root tooling
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.2
@@ -16,8 +67,11 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
+          envs: SERVER_APP_ROOT
           script: |
-            cd /home/ubuntu/duanxian
-            git pull origin main
+            set -euo pipefail
+            cd "$SERVER_APP_ROOT"
+            git pull --ff-only origin main
             bash deploy/scripts/deploy-single-server.sh
-            sudo nginx -t && sudo systemctl reload nginx
+            sudo nginx -t
+            sudo systemctl reload nginx

@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update \
   && apt install -y nginx sqlite3 curl git ca-certificates gnupg build-essential python3 tzdata \
-  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt install -y nodejs \
   && npm install -g pm2 \
   && rm -rf /var/lib/apt/lists/*

@@ -116,7 +116,8 @@ function speakNext() {
   if (voice) utterance.voice = voice
   utterance.lang = voice?.lang || 'zh-CN'
   utterance.rate = Number(settings.value.rate) || 1
-  utterance.volume = Math.min(1, Math.max(0, Number(settings.value.volume) ?? 1))
+  const volume = Number(settings.value.volume)
+  utterance.volume = Math.min(1, Math.max(0, Number.isFinite(volume) ? volume : 1))
 
   const phraseEnded = () => {
     draining = false

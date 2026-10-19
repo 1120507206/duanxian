@@ -6,7 +6,7 @@ import { TRIAL_DAYS, AUTH_POLICY } from '../services/accountService.js'
 import { requireAuth } from '../middleware/session.js'
 import { getPurchasablePlans } from '../config/plans.js'
 import { listPayMethods, PAY_CONTACT } from '../config/pay.js'
-import * as logger from '../utils/logger.js'
+import { asyncHandler } from '../utils/asyncHandler.js'
 
 const router = Router()
 
@@ -20,6 +20,15 @@ function clientIp(req) {
   return String(req.ip || req.socket?.remoteAddress || '').replace('::ffff:', '')
 }
 
+function sendAuthError(res, result) {
+  const status = result.code === 'LOGIN_LOCKED' ? 429 : 400
+  return res.status(status).json({
+    error: result.error,
+    code: result.code,
+    retryAfterMs: result.retryAfterMs,
+  })
+}
+
 /**
  * 发送验证码：purpose=register|login。
  *
@@ -27,7 +36,7 @@ function clientIp(req) {
  * 留着它只会白烧短信费（真实驱动下每条几分钱），也让用户以为有验证码这条路。
  * 配好通道、把 REQUIRE_SMS_CODE 设成 1 之后，这个接口自动恢复。
  */
-router.post('/sms/send', async (req, res) => {
+router.post('/sms/send', asyncHandler(async (req, res) => {
   if (!AUTH_POLICY.requireSmsCode) {
     return res.status(400).json({ error: '当前无需验证码，请直接使用手机号和密码' })
   }
@@ -36,7 +45,7 @@ router.post('/sms/send', async (req, res) => {
   const target = String(purpose || '').trim() === 'login' ? 'login' : 'register'
 
   const result = await sms.sendCode({ phone, purpose: target, ip: clientIp(req) })
-  if (!result.ok) return res.status(400).json({ error: result.error })
+  if (!result.ok) return sendAuthError(res, result)
 
   return res.json({
     ok: true,
@@ -46,10 +55,10 @@ router.post('/sms/send', async (req, res) => {
     // 生产换了真实驱动后这里恒为空。
     debugCode: result.debugCode || undefined,
   })
-})
+}))
 
 /** 注册：当前为手机号 + 密码（验证码按 AUTH_POLICY 决定是否必需），成功即送 TRIAL_DAYS 天会员 */
-router.post('/register', async (req, res) => {
+router.post('/register', asyncHandler(async (req, res) => {
   const { phone, code, password, deviceId, channel } = req.body || {}
 
   const result = accounts.register({
@@ -62,7 +71,7 @@ router.post('/register', async (req, res) => {
     userAgent: req.get('user-agent'),
   })
 
-  if (!result.ok) return res.status(400).json({ error: result.error })
+  if (!result.ok) return sendAuthError(res, result)
 
   users.recordEvent({
     deviceId,
@@ -79,10 +88,10 @@ router.post('/register', async (req, res) => {
     trial: result.trial ? { days: TRIAL_DAYS, expiresAt: result.trial.expiresAt } : null,
     message: result.trial ? `注册成功，已赠送 ${TRIAL_DAYS} 天会员` : '注册成功',
   })
-})
+}))
 
 /** 密码登录 */
-router.post('/login', async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
   const { phone, password, deviceId } = req.body || {}
   const result = accounts.loginWithPassword({
     phone,
@@ -92,14 +101,14 @@ router.post('/login', async (req, res) => {
     userAgent: req.get('user-agent'),
   })
 
-  if (!result.ok) return res.status(400).json({ error: result.error })
+  if (!result.ok) return sendAuthError(res, result)
 
   users.recordEvent({ deviceId, event: 'login', path: '/login', accountId: result.account?.id })
   return res.json({ ok: true, token: result.token, account: result.account })
-})
+}))
 
 /** 验证码登录：仅在开启短信验证码时可用（否则验证码根本发不出去） */
-router.post('/login/code', async (req, res) => {
+router.post('/login/code', asyncHandler(async (req, res) => {
   if (!AUTH_POLICY.requireSmsCode) {
     return res.status(400).json({ error: '当前使用密码登录，忘记密码请联系客服重置' })
   }
@@ -113,11 +122,11 @@ router.post('/login/code', async (req, res) => {
     userAgent: req.get('user-agent'),
   })
 
-  if (!result.ok) return res.status(400).json({ error: result.error })
+  if (!result.ok) return sendAuthError(res, result)
 
   users.recordEvent({ deviceId, event: 'login', path: '/login', accountId: result.account?.id })
   return res.json({ ok: true, token: result.token, account: result.account })
-})
+}))
 
 /** 退出登录：只销毁当前会话，其他设备不受影响 */
 router.post('/logout', (req, res) => {
@@ -144,10 +153,14 @@ router.get('/me', (req, res) => {
 
 /** 设置密码（已登录状态下补设，方便之后用密码登录） */
 router.post('/password', requireAuth, (req, res) => {
-  const { password } = req.body || {}
-  const result = accounts.setPassword({ accountId: req.accountId, password })
+  const { currentPassword, password } = req.body || {}
+  const result = accounts.changePassword({
+    accountId: req.accountId,
+    currentPassword,
+    password,
+  })
   if (!result.ok) return res.status(400).json({ error: result.error })
-  // setPassword 会踢掉所有会话（含当前这个），前端拿到 ok 后应重新登录
+  // changePassword 会踢掉所有会话（含当前这个），前端拿到 ok 后应重新登录
   return res.json({ ok: true, relogin: true })
 })
 

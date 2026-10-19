@@ -140,7 +140,7 @@ export function useZtliveFeed({
     return [...rows].sort((a, b) => {
       const left = sortableValue(a, prop)
       const right = sortableValue(b, prop)
-      let result = 0
+      let result
 
       if (typeof left === 'number' && typeof right === 'number') {
         result = (Number.isFinite(left) ? left : -Infinity) - (Number.isFinite(right) ? right : -Infinity)

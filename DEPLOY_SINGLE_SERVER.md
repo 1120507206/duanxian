@@ -26,10 +26,12 @@
 ```bash
 sudo apt update
 sudo apt install -y nginx sqlite3 curl git
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 sudo npm install -g pm2
 ```
+
+> 本项目要求 **Node.js 22+**：封板事件流直接使用 Node 内置的全局 `WebSocket`，Node 20 没有这个 API，实时通道会静默降级为纯轮询。仓库根目录的 `.nvmrc` 与 `package.json` 的 `engines` 也都锁定了 22。部署脚本会在 Node 版本低于 22 时直接失败。
 
 可选安装 HTTPS 工具：
 
@@ -238,10 +240,18 @@ chmod +x /var/www/duanxian/deploy/scripts/deploy-single-server.sh
 
 这会做：
 
-1. 前端安装依赖并重新构建
-2. 后端安装生产依赖
-3. 确保 `data` 目录存在
-4. 用 `PM2` 重启后端
+1. 检查 Node.js 版本（必须 22+）
+2. 备份 SQLite（数据库和 `sqlite3` 都存在时）
+3. 前端安装依赖并重新构建
+4. 后端安装生产依赖
+5. 确保 `data` 目录存在
+6. 用 `PM2` 重启后端
+7. 轮询 `/api/health`，状态不是 `ok` 时部署失败并打印 PM2 日志
+8. 检查 `/api/ztlive/stream/status` 可访问
+
+脚本会从自身位置推导仓库根目录，所以放在 `/var/www/duanxian` 或 `/home/ubuntu/duanxian` 都能直接执行，不需要额外传 `APP_ROOT`。
+
+GitHub Actions 的部署目录默认是 `/home/ubuntu/duanxian`。如果服务器实际路径不同，在仓库 **Settings → Variables** 里新增 `SERVER_APP_ROOT`，值填真实仓库路径即可，不需要改 workflow 文件。
 
 ## 8. 上线后检查
 

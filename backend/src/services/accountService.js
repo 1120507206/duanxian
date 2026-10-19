@@ -78,14 +78,83 @@ export const ACCOUNT_ERRORS = {
   PHONE_TAKEN: '该手机号已注册，请直接登录',
   NOT_FOUND: '账号不存在，请先注册',
   WRONG_PASSWORD: '手机号或密码不正确',
+  WRONG_CURRENT_PASSWORD: '当前密码不正确',
   NO_PASSWORD: '该账号未设置密码，请联系客服重置',
   DISABLED: '账号已被停用，请联系客服',
   WEAK_CODE: '验证码不正确',
+  LOGIN_LOCKED: '尝试次数过多，请 15 分钟后再试',
 }
 
 function nowMs() {
   return Date.now()
 }
+
+function maskPhone(phone) {
+  return phone ? `${phone.slice(0, 3)}****${phone.slice(7)}` : ''
+}
+
+// ---------------------------------------------------------------- 登录失败限流
+
+/**
+ * 前台登录失败限流：同一手机号 5 次、同一 IP 30 次，15 分钟窗口。
+ *
+ * 只存在进程内存里，与 adminService 的登录锁定同一取舍：单机 PM2 fork 模式下够用，
+ * 进程重启会清空。IP 上限刻意比手机号宽松，避免小区宽带/公司网络/4G NAT 下
+ * 一个正常用户被邻居的失败尝试连坐。
+ */
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const LOGIN_MAX_FAILURES_PER_PHONE = 5
+const LOGIN_MAX_FAILURES_PER_IP = 30
+const loginFailures = new Map()
+
+function failureKey(prefix, value) {
+  return `${prefix}:${String(value || '').slice(0, 80)}`
+}
+
+function lockedFor(key) {
+  const bucket = loginFailures.get(key)
+  if (!bucket) return 0
+  if (bucket.resetAt <= nowMs()) {
+    loginFailures.delete(key)
+    return 0
+  }
+  if (bucket.count < bucket.limit) return 0
+  return bucket.resetAt - nowMs()
+}
+
+function recordFailure(key, limit) {
+  if (!key) return
+  const now = nowMs()
+  const bucket = loginFailures.get(key)
+  if (!bucket || bucket.resetAt <= now) {
+    loginFailures.set(key, { count: 1, limit, resetAt: now + LOGIN_WINDOW_MS })
+    return
+  }
+  bucket.count += 1
+}
+
+function clearFailures(keys) {
+  keys.filter(Boolean).forEach((key) => loginFailures.delete(key))
+}
+
+function loginLock({ phone, ip }) {
+  const phoneKey = failureKey('phone', phone)
+  const ipKey = ip ? failureKey('ip', ip) : ''
+  const retryAfterMs = Math.max(lockedFor(phoneKey), ipKey ? lockedFor(ipKey) : 0)
+  return { phoneKey, ipKey, locked: retryAfterMs > 0, retryAfterMs }
+}
+
+function recordLoginFailure({ phoneKey, ipKey }) {
+  recordFailure(phoneKey, LOGIN_MAX_FAILURES_PER_PHONE)
+  recordFailure(ipKey, LOGIN_MAX_FAILURES_PER_IP)
+}
+
+setInterval(() => {
+  const now = nowMs()
+  for (const [key, bucket] of loginFailures.entries()) {
+    if (bucket.resetAt <= now) loginFailures.delete(key)
+  }
+}, LOGIN_WINDOW_MS).unref()
 
 // ---------------------------------------------------------------- 密码
 
@@ -306,16 +375,32 @@ export function loginWithPassword({ phone, password, deviceId, ip = '', userAgen
   const normalized = normalizePhone(phone)
   if (!normalized) return { ok: false, error: ACCOUNT_ERRORS.INVALID_PHONE }
 
-  const account = db.prepare('SELECT * FROM accounts WHERE phone = ?').get(normalized)
-  if (!account) return { ok: false, error: ACCOUNT_ERRORS.NOT_FOUND }
-  if (account.status !== 'active') return { ok: false, error: ACCOUNT_ERRORS.DISABLED }
-  // 早期验证码注册留下的无密码账号：报「密码不正确」会让用户反复试，
-  // 直接告诉他走人工重置，少一轮无效折腾
-  if (!account.password_hash) return { ok: false, error: ACCOUNT_ERRORS.NO_PASSWORD }
-  if (!verifyPassword(password, account.password_hash)) {
-    return { ok: false, error: ACCOUNT_ERRORS.WRONG_PASSWORD }
+  const lock = loginLock({ phone: normalized, ip })
+  if (lock.locked) {
+    logger.warn('login_throttled', { phone: maskPhone(normalized), ip, retryAfterMs: lock.retryAfterMs })
+    return {
+      ok: false,
+      error: ACCOUNT_ERRORS.LOGIN_LOCKED,
+      code: 'LOGIN_LOCKED',
+      retryAfterMs: lock.retryAfterMs,
+    }
   }
 
+  const account = db.prepare('SELECT * FROM accounts WHERE phone = ?').get(normalized)
+  // 账号不存在、未设置密码、密码错误统一返回同一句话：
+  // 否则登录接口会变成「这个手机号有没有注册」的枚举器。
+  const passwordOk = account?.password_hash
+    ? verifyPassword(password, account.password_hash)
+    : false
+
+  if (!account || !passwordOk) {
+    recordLoginFailure(lock)
+    return { ok: false, error: ACCOUNT_ERRORS.WRONG_PASSWORD }
+  }
+  // 停用状态只在密码正确后返回，避免用错误密码也能探测账号是否存在
+  if (account.status !== 'active') return { ok: false, error: ACCOUNT_ERRORS.DISABLED }
+
+  clearFailures([lock.phoneKey, lock.ipKey])
   return finishLogin({ account, deviceId, ip, userAgent })
 }
 
@@ -323,13 +408,27 @@ export function loginWithCode({ phone, code, deviceId, ip = '', userAgent = '' }
   const normalized = normalizePhone(phone)
   if (!normalized) return { ok: false, error: ACCOUNT_ERRORS.INVALID_PHONE }
 
+  const lock = loginLock({ phone: normalized, ip })
+  if (lock.locked) {
+    logger.warn('login_throttled', { phone: maskPhone(normalized), ip, retryAfterMs: lock.retryAfterMs })
+    return {
+      ok: false,
+      error: ACCOUNT_ERRORS.LOGIN_LOCKED,
+      code: 'LOGIN_LOCKED',
+      retryAfterMs: lock.retryAfterMs,
+    }
+  }
+
   const account = db.prepare('SELECT * FROM accounts WHERE phone = ?').get(normalized)
-  if (!account) return { ok: false, error: ACCOUNT_ERRORS.NOT_FOUND }
+  const verified = sms.verifyCode({ phone: normalized, code, purpose: 'login' })
+  // 验证码错误与账号不存在同样归一，避免暴露手机号是否注册
+  if (!verified.ok || !account) {
+    recordLoginFailure(lock)
+    return { ok: false, error: ACCOUNT_ERRORS.INVALID_CODE }
+  }
   if (account.status !== 'active') return { ok: false, error: ACCOUNT_ERRORS.DISABLED }
 
-  const verified = sms.verifyCode({ phone: normalized, code, purpose: 'login' })
-  if (!verified.ok) return { ok: false, error: verified.error || ACCOUNT_ERRORS.INVALID_CODE }
-
+  clearFailures([lock.phoneKey, lock.ipKey])
   return finishLogin({ account, deviceId, ip, userAgent })
 }
 
@@ -341,12 +440,29 @@ function finishLogin({ account, deviceId, ip, userAgent }) {
   return { ok: true, token, account: getPublicAccount(account.id) }
 }
 
-/** 设置/重设密码（验证码校验过之后调用） */
+/** 设置/重设密码（验证码校验过、管理员重置时调用） */
 export function setPassword({ accountId, password }) {
   if (!isValidPassword(password)) return { ok: false, error: ACCOUNT_ERRORS.INVALID_PASSWORD }
   db.prepare('UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?').run(hashPassword(password), nowMs(), accountId)
   revokeAllSessions(accountId)
   return { ok: true }
+}
+
+/**
+ * 用户自助改密码。
+ *
+ * 已有密码时必须验证旧密码：否则会话 token 一旦泄露，攻击者可以直接改密码
+ * 并把原主人踢下线。没有密码的账号（早期验证码注册、后台初始化）允许直接设置。
+ */
+export function changePassword({ accountId, currentPassword, password } = {}) {
+  const account = getAccountById(accountId)
+  if (!account) return { ok: false, error: ACCOUNT_ERRORS.NOT_FOUND }
+
+  if (account.password_hash && !verifyPassword(currentPassword, account.password_hash)) {
+    return { ok: false, error: ACCOUNT_ERRORS.WRONG_CURRENT_PASSWORD }
+  }
+
+  return setPassword({ accountId, password })
 }
 
 /**

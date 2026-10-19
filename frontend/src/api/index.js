@@ -196,9 +196,9 @@ export function fetchMemberConfig() {
   return probeApi('/auth/config')
 }
 
-/** 设置密码 */
-export function setAccountPassword(password) {
-  return http.post('/auth/password', { password })
+/** 设置/修改密码。已有密码时必须同时提供 currentPassword */
+export function setAccountPassword(password, currentPassword = '') {
+  return http.post('/auth/password', { password, currentPassword })
 }
 
 // ========== 收款码支付 ==========

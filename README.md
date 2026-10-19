@@ -59,6 +59,8 @@ duanxian/
 
 ## 本地启动
 
+运行环境要求 **Node.js 22+**（封板事件流使用 Node 内置的全局 `WebSocket`；Node 20 会静默退回纯轮询）。仓库根目录的 `.nvmrc` 可直接 `nvm use`。
+
 后端：
 
 ```bash
@@ -78,6 +80,16 @@ npm run dev
 ```
 
 默认地址：`http://localhost:3000`
+
+## 代码检查与测试
+
+根目录提供统一的 lint 和单元测试入口（CI 会在部署前执行）：
+
+```bash
+npm install
+npm run lint
+npm test
+```
 
 ## 构建
 
