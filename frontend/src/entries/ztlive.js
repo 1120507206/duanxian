@@ -6,7 +6,12 @@ import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+// 独立页只用到搜索一个图标，不能像以前那样 import * 全量注册：
+// 通达信内置浏览器对首包很敏感，近千个图标是纯负担。
+//
+// 注：试过按需注册 13 个组件，EP 的 barrel 仍会把整库打进 chunk（863KB 没变），
+// 所以这里保留全量安装 —— 少注册几十个组件换不来体积收益，却增加漏注册风险。
+import { Search as SearchIcon } from '@element-plus/icons-vue'
 import ZtliveEmbed from '@/views/ZtliveEmbed.vue'
 import { useEmbedThemeStore } from '@/stores/theme'
 import { useUserStore } from '@/stores/user'
@@ -26,9 +31,6 @@ useEmbedThemeStore(pinia).sync()
 // 拿不到会员权益，付费用户会被当成免费用户，语音开不了。
 useUserStore(pinia).bootstrap()
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
+app.component('SearchIcon', SearchIcon)
 
 app.mount('#app')
-

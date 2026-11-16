@@ -16,6 +16,7 @@
  */
 import crypto from 'crypto'
 import db from '../db/index.js'
+import { makeOrderNo } from '../utils/orderNo.js'
 import { getPlan, isValidPlan, getPurchasablePlans } from '../config/plans.js'
 import { getPayMethod, listPayMethods, autoApproveEnabled, ORDER_TTL_MS } from '../config/pay.js'
 import * as accounts from './accountService.js'
@@ -36,11 +37,37 @@ function nowMs() {
   return Date.now()
 }
 
-/** 订单号：日期 + 随机，人眼可读、口播/打字都不容易错 */
-function makeOrderNo() {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const rand = crypto.randomInt(1000, 10000)
-  return `DX${date}${rand}`
+/** SQLite 唯一约束冲突。订单号碰撞时靠它识别，再换一个号重试。 */
+function isUniqueViolation(error) {
+  return String(error?.code || '').startsWith('SQLITE_CONSTRAINT')
+}
+
+/**
+ * 落单，并在订单号碰撞时换号重试。
+ *
+ * 订单号是 21.8 亿分之一的随机值，正常永远走不到重试分支；
+ * 但「永远」不该建立在概率上 —— 这里重试 3 次，成本只有一次同步 INSERT。
+ */
+function insertOrder({ accountId, deviceId, plan, amount, payTag, payMethod, now, expiresAt }) {
+  const insert = db.prepare(`
+    INSERT INTO payment_orders
+      (order_no, account_id, device_id, plan, amount, pay_tag, pay_method, status, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+  `)
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const orderNo = makeOrderNo()
+    try {
+      insert.run(orderNo, accountId, deviceId || null, plan, amount, payTag, payMethod, now, expiresAt)
+      return orderNo
+    } catch (error) {
+      if (!isUniqueViolation(error) || attempt === 3) throw error
+      logger.warn('order_no_collision', { attempt, orderNo })
+    }
+  }
+
+  // 循环要么 return 要么 throw，这里只是让静态检查安心
+  throw new Error('订单号生成失败')
 }
 
 /**
@@ -71,14 +98,18 @@ export function createOrder({ accountId, deviceId, plan, payMethod = 'wx' } = {}
     }
   }
 
-  const orderNo = makeOrderNo()
   const amount = Number((config.price + payTag / 100).toFixed(2))
 
-  db.prepare(`
-    INSERT INTO payment_orders
-      (order_no, account_id, device_id, plan, amount, pay_tag, pay_method, status, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-  `).run(orderNo, accountId, deviceId || null, plan, amount, payTag, method.key, now, now + ORDER_TTL_MS)
+  const orderNo = insertOrder({
+    accountId,
+    deviceId,
+    plan,
+    amount,
+    payTag,
+    payMethod: method.key,
+    now,
+    expiresAt: now + ORDER_TTL_MS,
+  })
 
   logger.info('order_created', { orderNo, accountId, plan, amount, payMethod: method.key })
 

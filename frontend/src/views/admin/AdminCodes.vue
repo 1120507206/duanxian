@@ -303,7 +303,7 @@ onMounted(async () => {
           @keyup.enter="search"
           @clear="search"
         >
-          <template #prefix><el-icon><Search /></el-icon></template>
+          <template #prefix><el-icon><SearchIcon /></el-icon></template>
         </el-input>
 
         <el-button type="primary" @click="search">查询</el-button>

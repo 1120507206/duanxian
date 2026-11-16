@@ -24,13 +24,12 @@ export async function getIndices() {
 // ==================== 市场情绪 ====================
 export async function getSentiment() {
   return getCached('sentiment:all', 'sentiment', async () => {
-    const [upDown, limitCounts, ztStocks] = await Promise.all([
-      eastMoney.getMarketUpsAndDowns(),
-      eastMoney.getLimitCounts(),
+    const [breadth, ztStocks] = await Promise.all([
+      eastMoney.getMarketBreadth(),
       eastMoney.getLimitUpStocks(),
     ])
-    const ztCount = limitCounts.ztCount || ztStocks.length
-    const dtCount = limitCounts.dtCount || 0
+    const ztCount = breadth.ztCount || ztStocks.length
+    const dtCount = breadth.dtCount || 0
     const lianbanHeight = await getSentimentLianbanHeight(ztStocks)
     return {
       ztCount,
@@ -39,9 +38,9 @@ export async function getSentiment() {
       kuiqian: 0,
       mainFlow: 0,
       lianbanHeight,
-      upCount: upDown.upCount,
-      downCount: upDown.downCount,
-      turnover: upDown.turnover || 0,
+      upCount: breadth.upCount,
+      downCount: breadth.downCount,
+      turnover: breadth.turnover || 0,
     }
   })
 }

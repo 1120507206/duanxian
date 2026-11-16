@@ -215,10 +215,12 @@ export function getSession(token) {
 export function revokeSession(token) {
   if (!token) return
   db.prepare('DELETE FROM sessions WHERE token = ?').run(String(token))
+  invalidateEntitlementCache()
 }
 
 export function revokeAllSessions(accountId) {
   db.prepare('DELETE FROM sessions WHERE account_id = ?').run(accountId)
+  invalidateEntitlementCache()
 }
 
 /** 清理过期会话。会话表是所有请求的必经查询，不能让它无限增长 */
@@ -272,6 +274,9 @@ export function grantMembership({ accountId, plan, days, source = 'manual' }) {
     source,
     expiresAt: new Date(expiresAt).toISOString(),
   })
+
+  // 付款/续期后下一次轮询就该解锁，不能等 15 秒 TTL
+  invalidateEntitlementCache()
 
   return { ok: true, plan: planKey, durationDays: duration, expiresAt, renewed: (account.membership_expires_at || 0) > now }
 }
@@ -497,6 +502,7 @@ export function setAccountStatus({ accountId, status }) {
   const info = db.prepare('UPDATE accounts SET status = ?, updated_at = ? WHERE id = ?').run(next, nowMs(), accountId)
   if (!info.changes) return { ok: false, error: '账号不存在' }
   if (next === 'disabled') revokeAllSessions(accountId)
+  invalidateEntitlementCache()
   return { ok: true, status: next }
 }
 
@@ -567,16 +573,86 @@ export function resolveEntitlement({ token, deviceId } = {}) {
   }
 }
 
+// ---------------------------------------------------------------- 权益缓存
+
+/**
+ * `/api/ztlive` 每个客户端每 3 秒轮询一次，每次都要查 sessions + accounts，
+ * 未登录还要查设备状态。100 人在线就是 ~33 QPS 的重复读，而权益变化
+ * （付款、后台续期、会员过期）本来就是分钟级事件。
+ *
+ * 缓存 15 秒：既能把读放大压下去，又不会让「刚付款」等太久；
+ * 所有会改权益的写路径都会主动 invalidate，不依赖 TTL 过期。
+ */
+const ENTITLEMENT_TTL_MS = 15 * 1000
+const ENTITLEMENT_CACHE_MAX = 2000
+const entitlementCache = new Map()
+
+function entitlementKey({ token, deviceId } = {}) {
+  if (token) return `t:${token}`
+  if (deviceId) return `d:${deviceId}`
+  return ''
+}
+
+/** 权益发生写入时调用（开通/续期/停用/登出），避免用户等 TTL */
+export function invalidateEntitlementCache() {
+  entitlementCache.clear()
+}
+
+function readCachedEntitlement(key) {
+  if (!key) return null
+
+  const entry = entitlementCache.get(key)
+  if (!entry) return null
+
+  if (entry.expiresAt <= nowMs()) {
+    entitlementCache.delete(key)
+    return null
+  }
+
+  return entry.value
+}
+
+function writeCachedEntitlement(key, value) {
+  if (!key) return
+
+  if (entitlementCache.size >= ENTITLEMENT_CACHE_MAX) {
+    // 不做 LRU：先清过期，再按插入顺序丢掉最老的一批，行为可预测且没有额外依赖
+    const now = nowMs()
+    for (const [itemKey, entry] of entitlementCache) {
+      if (entry.expiresAt <= now) entitlementCache.delete(itemKey)
+    }
+
+    if (entitlementCache.size >= ENTITLEMENT_CACHE_MAX) {
+      const overflow = entitlementCache.size - ENTITLEMENT_CACHE_MAX + 1
+      let removed = 0
+      for (const itemKey of entitlementCache.keys()) {
+        entitlementCache.delete(itemKey)
+        removed += 1
+        if (removed >= overflow) break
+      }
+    }
+  }
+
+  entitlementCache.set(key, { value, expiresAt: nowMs() + ENTITLEMENT_TTL_MS })
+}
+
 /** 下发给 /api/ztlive 的权益开关。付费墙砌在语音上：免费看表，付费出声。 */
 export function getEntitlements({ token, deviceId } = {}) {
+  const key = entitlementKey({ token, deviceId })
+  const cached = readCachedEntitlement(key)
+  if (cached) return cached
+
   const resolved = resolveEntitlement({ token, deviceId })
-  return {
+  const value = {
     voice: resolved.voice,
     isMember: resolved.isMember,
     plan: resolved.plan,
     expiresAt: resolved.expiresAt,
     daysLeft: resolved.daysLeft,
   }
+
+  writeCachedEntitlement(key, value)
+  return value
 }
 
 /** 激活码核销：登录后优先充到账户上（跨设备生效），未登录才落到设备 */

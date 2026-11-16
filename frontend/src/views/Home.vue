@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import { useMarketStore } from '@/stores/market'
 import { useThemeStore } from '@/stores/theme'
@@ -7,9 +7,7 @@ import { useThemeStore } from '@/stores/theme'
 const store = useMarketStore()
 const themeStore = useThemeStore()
 const sentimentChartRef = ref(null)
-const flowChartRef = ref(null)
 let sentimentChart = null
-let flowChart = null
 
 const riseCount = computed(() => store.sentiment.upCount)
 const fallCount = computed(() => store.sentiment.downCount)
@@ -38,6 +36,8 @@ function splitLineColor() {
 
 function initSentimentChart() {
   if (!sentimentChartRef.value) return
+  // 没拿到情绪数据就不画图：画一张全 0 的柱状图等于告诉用户「今天没有涨停」
+  if (!store.sentimentReady) return
 
   sentimentChart?.dispose()
   sentimentChart = echarts.init(sentimentChartRef.value, chartTheme())
@@ -112,54 +112,8 @@ function initSentimentChart() {
   })
 }
 
-function initFlowChart() {
-  if (!flowChartRef.value) return
-
-  flowChart?.dispose()
-  flowChart = echarts.init(flowChartRef.value, chartTheme())
-  flowChart.setOption({
-    grid: { top: 16, right: 12, bottom: 8, left: 12, containLabel: true },
-    tooltip: {
-      trigger: 'axis',
-      textStyle: { fontSize: 12 },
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: ['09:30', '10:00', '10:30', '11:00', '11:30', '13:30', '14:00', '14:30', '15:00'],
-      axisLabel: { fontSize: 10, color: axisTextColor() },
-      axisLine: { lineStyle: { color: splitLineColor() } },
-      axisTick: { show: false },
-    },
-    yAxis: {
-      type: 'value',
-      min: 0,
-      axisLabel: { show: false },
-      splitLine: { show: false },
-      axisLine: { show: false },
-    },
-    series: [{
-      type: 'line',
-      data: [120, 200, 180, 250, 300, 280, 350, 400, 380],
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 5,
-      showSymbol: false,
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(239,68,68,0.25)' },
-          { offset: 1, color: 'rgba(239,68,68,0)' },
-        ]),
-      },
-      lineStyle: { color: '#ef4444', width: 2.5 },
-      itemStyle: { color: '#ef4444' },
-    }],
-  })
-}
-
 function renderCharts() {
   initSentimentChart()
-  initFlowChart()
 }
 
 async function loadHomeView() {
@@ -169,12 +123,15 @@ async function loadHomeView() {
     store.loadLonghu(),
     store.loadJingjia(),
   ])
+  // 情绪区是 v-if 渲染的：数据刚到时 DOM 还没挂上，必须等一次 nextTick
+  await nextTick()
   renderCharts()
   markUpdated()
 }
 
 async function refreshHomeSummary() {
   await store.refreshHome()
+  await nextTick()
   initSentimentChart()
   markUpdated()
 }
@@ -189,7 +146,6 @@ watch(
 
 function handleResize() {
   sentimentChart?.resize()
-  flowChart?.resize()
 }
 
 onMounted(async () => {
@@ -200,7 +156,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   sentimentChart?.dispose()
-  flowChart?.dispose()
 })
 </script>
 
@@ -216,7 +171,17 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="index-strip">
+    <!-- 数据降级提示：常驻说明，不依赖 4 秒后消失的 toast -->
+    <div v-if="store.homeError" class="home-alert is-error">
+      <el-icon><WarningFilled /></el-icon>
+      <span>{{ store.homeError }}<template v-if="store.indices.length || store.sentimentReady">，当前展示的是最近一次成功获取的数据</template></span>
+    </div>
+    <div v-else-if="store.homeDegraded" class="home-alert">
+      <el-icon><WarningFilled /></el-icon>
+      <span>部分行情数据暂不可用，页面只展示已成功获取的部分</span>
+    </div>
+
+    <div v-if="store.indices.length" class="index-strip">
       <div v-for="item in store.indices" :key="item.code" class="index-item">
         <span class="idx-name">{{ item.name }}</span>
         <span class="idx-value tnum">{{ Number(item.value).toFixed(2) }}</span>
@@ -230,6 +195,9 @@ onBeforeUnmount(() => {
         {{ new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}
       </div>
     </div>
+    <div v-else class="index-strip index-strip-empty">
+      指数数据暂不可用
+    </div>
 
     <div class="home-grid">
       <div class="card sentiment-card glow-border">
@@ -239,51 +207,47 @@ onBeforeUnmount(() => {
             <el-icon><Refresh /></el-icon>
           </el-button>
         </div>
-        <div class="sentiment-grid">
-          <div class="sent-item stat-animate sent-rise">
-            <span class="sent-label">涨停家数</span>
-            <span class="sent-value text-rise tnum">{{ store.sentiment.ztCount }}</span>
+        <template v-if="store.sentimentReady">
+          <div class="sentiment-grid">
+            <div class="sent-item stat-animate sent-rise">
+              <span class="sent-label">涨停家数</span>
+              <span class="sent-value text-rise tnum">{{ store.sentiment.ztCount }}</span>
+            </div>
+            <div class="sent-item stat-animate sent-fall">
+              <span class="sent-label">跌停家数</span>
+              <span class="sent-value text-fall tnum">{{ store.sentiment.dtCount }}</span>
+            </div>
+            <div class="sent-item stat-animate sent-rise">
+              <span class="sent-label">封板率</span>
+              <span class="sent-value text-rise tnum">{{ store.sentiment.ztRatio }}%</span>
+            </div>
+            <div class="sent-item stat-animate sent-accent">
+              <span class="sent-label">连板高度</span>
+              <span class="sent-value sent-accent-value tnum">{{ store.sentiment.lianbanHeight }}板</span>
+            </div>
+            <div class="sent-item stat-animate sent-rise">
+              <span class="sent-label">上涨家数</span>
+              <span class="sent-value text-rise tnum">{{ riseCount }}</span>
+            </div>
+            <div class="sent-item stat-animate sent-fall">
+              <span class="sent-label">下跌家数</span>
+              <span class="sent-value text-fall tnum">{{ fallCount }}</span>
+            </div>
           </div>
-          <div class="sent-item stat-animate sent-fall">
-            <span class="sent-label">跌停家数</span>
-            <span class="sent-value text-fall tnum">{{ store.sentiment.dtCount }}</span>
-          </div>
-          <div class="sent-item stat-animate sent-rise">
-            <span class="sent-label">封板率</span>
-            <span class="sent-value text-rise tnum">{{ store.sentiment.ztRatio }}%</span>
-          </div>
-          <div class="sent-item stat-animate sent-accent">
-            <span class="sent-label">连板高度</span>
-            <span class="sent-value sent-accent-value tnum">{{ store.sentiment.lianbanHeight }}板</span>
-          </div>
-          <div class="sent-item stat-animate sent-rise">
-            <span class="sent-label">上涨家数</span>
-            <span class="sent-value text-rise tnum">{{ riseCount }}</span>
-          </div>
-          <div class="sent-item stat-animate sent-fall">
-            <span class="sent-label">下跌家数</span>
-            <span class="sent-value text-fall tnum">{{ fallCount }}</span>
-          </div>
-        </div>
-        <div ref="sentimentChartRef" class="mini-chart" />
+          <div ref="sentimentChartRef" class="mini-chart" />
+        </template>
+        <p v-else class="card-empty">情绪数据暂不可用</p>
       </div>
 
       <div class="card glow-border">
         <div class="card-header">
           <span class="card-title">主力资金流向</span>
         </div>
-        <div class="flow-big-number">
-          <span class="flow-amount tnum" :class="store.sentiment.mainFlow >= 0 ? 'text-rise' : 'text-fall'">
-            {{ store.sentiment.mainFlow >= 0 ? '+' : '' }}{{ Number(store.sentiment.mainFlow).toFixed(1) }}<span class="flow-unit">亿</span>
-          </span>
-          <div class="flow-meta">
-            <span>成交额 {{ store.sentiment.turnover }} 亿</span>
-            <span class="flow-label" :class="store.sentiment.kuiqian >= 0 ? 'text-rise' : 'text-fall'">
-              亏钱效应 {{ store.sentiment.kuiqian }}
-            </span>
-          </div>
-        </div>
-        <div ref="flowChartRef" class="mini-chart" />
+        <!--
+          这里原本画了一条硬编码的分时曲线（120/200/180…），而 mainFlow / kuiqian
+          在后端恒为 0，等于整张卡都是演的。数据没接入就不画，避免用户当真。
+        -->
+        <p class="card-empty">资金流向数据暂未接入</p>
       </div>
 
       <div class="card lb-card glow-border">
@@ -291,10 +255,13 @@ onBeforeUnmount(() => {
           <span class="card-title">连板梯队</span>
           <router-link to="/lianban" class="more-link">更多 →</router-link>
         </div>
-        <div v-for="(stocks, board) in store.lianbanGroups" :key="board" class="lb-row">
-          <span class="lb-board">{{ board }}</span>
-          <span class="lb-names">{{ stocks.map((s) => s.name).join('、') }}</span>
-        </div>
+        <template v-if="Object.keys(store.lianbanGroups).length">
+          <div v-for="(stocks, board) in store.lianbanGroups" :key="board" class="lb-row">
+            <span class="lb-board">{{ board }}</span>
+            <span class="lb-names">{{ stocks.map((s) => s.name).join('、') }}</span>
+          </div>
+        </template>
+        <p v-else class="card-empty">暂无连板数据</p>
       </div>
 
       <div class="card">
@@ -302,7 +269,7 @@ onBeforeUnmount(() => {
           <span class="card-title">龙虎榜</span>
           <router-link to="/longhu" class="more-link">更多 →</router-link>
         </div>
-        <el-table :data="store.longhuList.slice(0, 5)" size="small" stripe>
+        <el-table v-if="store.longhuList.length" :data="store.longhuList.slice(0, 5)" size="small" stripe>
           <el-table-column prop="name" label="股票" width="85" />
           <el-table-column prop="pct" label="涨幅" width="75">
             <template #default="{ row }">
@@ -325,6 +292,7 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
         </el-table>
+        <p v-else class="card-empty">暂无龙虎榜数据</p>
       </div>
 
       <div class="card">
@@ -332,7 +300,7 @@ onBeforeUnmount(() => {
           <span class="card-title">竞价异动</span>
           <router-link to="/jingjia" class="more-link">更多 →</router-link>
         </div>
-        <div class="jj-mini-list">
+        <div v-if="store.jingjiaList.length" class="jj-mini-list">
           <div v-for="item in store.jingjiaList.slice(0, 8)" :key="item.code" class="jj-mini-item">
             <span class="jj-name">{{ item.name }}</span>
             <span :class="['jj-pct', 'tnum', Number(item.jjPct) >= 0 ? 'text-rise' : 'text-fall']">
@@ -341,6 +309,7 @@ onBeforeUnmount(() => {
             <span class="jj-amt tnum">{{ item.jjAmount }}亿</span>
           </div>
         </div>
+        <p v-else class="card-empty">暂无竞价数据</p>
       </div>
     </div>
   </div>
@@ -372,6 +341,40 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-bg-card);
+}
+
+/* ---------- 数据降级提示 ---------- */
+.home-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(234, 88, 12, 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(234, 88, 12, 0.08);
+  color: var(--color-accent);
+  font-size: 13px;
+}
+
+.home-alert.is-error {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--color-rise);
+}
+
+.index-strip-empty {
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.card-empty {
+  margin: 0;
+  padding: 28px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
 
 /* ---------- 指数条 ---------- */
@@ -468,25 +471,7 @@ onBeforeUnmount(() => {
 .sent-value { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .sent-accent-value { color: var(--color-accent); }
 
-/* ---------- 资金大数字 ---------- */
-.flow-big-number {
-  text-align: center;
-  padding: 16px 0 8px;
-}
-
-.flow-amount { font-size: 34px; font-weight: 900; letter-spacing: -0.5px; }
-.flow-unit { font-size: 16px; font-weight: 600; }
-
-.flow-meta {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.flow-label { font-weight: 600; }
+/* ---------- 图表 ---------- */
 .mini-chart { height: 150px; }
 
 /* ---------- 连板梯队 ---------- */

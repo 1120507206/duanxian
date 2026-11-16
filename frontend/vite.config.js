@@ -36,13 +36,40 @@ export default defineConfig({
         ztlive: fileURLToPath(new URL('./ztlive.html', import.meta.url)),
       },
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/echarts')) return 'echarts'
-          if (id.includes('node_modules/element-plus')) return 'element-plus'
-          if (id.includes('node_modules/@element-plus')) return 'element-plus'
-          if (id.includes('node_modules/vue') || id.includes('node_modules/pinia') || id.includes('node_modules/vue-router')) {
-            return 'vue-vendor'
-          }
+        // Vite 8 底层是 Rolldown，分包要用 codeSplitting.groups；
+        // 旧的 manualChunks 在 codeSplitting 开启时会被忽略。
+        //
+        // 分组顺序很重要：Vue 运行时必须单独成组，否则会被并进 element-plus，
+        // 导致「所有页面都静态依赖 EP」，落地页首屏又被迫预加载 1.1MB。
+        codeSplitting: {
+          groups: [
+            {
+              // 图标必须排在 EP 前面：EP 的 package.json 依赖 @element-plus/icons-vue，
+              // 分组捕获会顺着依赖把它吸进 EP chunk；而 Landing 只 import 图标，
+              // 一旦图标在 EP 里，落地页就会被迫加载 893KB 的组件库。
+              name: 'icons',
+              test: /node_modules[\\/]@element-plus[\\/]icons-vue[\\/]/,
+              priority: 40,
+            },
+            {
+              name: 'vue-vendor',
+              test: /node_modules[\\/](@vue|vue|vue-router|pinia)[\\/]/,
+              priority: 30,
+            },
+            {
+              name: 'element-plus',
+              // 不含 @element-plus/icons-vue：图标由引用方各自 tree-shake。
+              // @vueuse 只有 EP 在用，归到这一组，落地页就不用为它买单。
+              test: (id) => /node_modules[\\/]element-plus[\\/]/.test(id)
+                || /node_modules[\\/]@vueuse[\\/]/.test(id),
+              priority: 20,
+            },
+            {
+              name: 'echarts',
+              test: /node_modules[\\/]echarts[\\/]/,
+              priority: 10,
+            },
+          ],
         },
       },
     },

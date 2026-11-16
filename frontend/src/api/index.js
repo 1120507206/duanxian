@@ -90,9 +90,10 @@ export function fetchZtlive() {
   return http.get('/ztlive')
 }
 
-// 首页数据
+// 首页数据。失败由页面内联提示，不走全局 toast —— 首页被隐藏入口仍可能直达，
+// 而且「数据不可用」需要常驻说明，不该 4 秒后自己消失。
 export function fetchHomeData() {
-  return http.get('/home')
+  return http.get('/home', { suppressNotify: true })
 }
 
 // 连板排行

@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
+import tls from 'node:tls'
+import { Manager } from 'socket.io-client'
 import config from '../config/index.js'
 import * as logger from '../utils/logger.js'
 import { normalizeEventRow } from './ztliveService.js'
@@ -6,8 +9,18 @@ import { normalizeEventRow } from './ztliveService.js'
 /**
  * 上游封板事件流客户端（方案 B：后端中转）。
  *
+ * ── 传输方式：dxx-ws-v2（Socket.IO v4）──
+ * 上游已从裸 WebSocket（`wss1~3`）切到 Socket.IO：
+ *   · 地址 `https://t.duanxianxia.com`，`path` 必须是 `/dxx`（是参数，不是 URL 路径）；
+ *   · 封板频道 = namespace `/ztlive`，事件名 `zt`；
+ *   · 只支持 `transports: ['websocket']`（服务端关掉了长轮询）；
+ *   · 无鉴权、无订阅协议：连上 namespace 就收到该频道全部消息；
+ *   · 心跳由 Socket.IO 自己管（服务端 pingInterval 25s / pingTimeout 60s），
+ *     所以这里**不再手写 'ping' 帧** —— 那套心跳是裸 WS 时代的产物。
+ * 报文 `from` 取值与旧版一致（封板仍是 `ztpool`），所以下游渲染 / 播报逻辑不用动。
+ *
  * ── 为什么不让浏览器直连上游 ──
- * 上游 WS 目前不校验 Origin，前端直连也能通。但那样把三方地址、报文格式、重连策略
+ * 上游不校验 Origin，前端直连也能通。但那样把三方地址、报文格式、重连策略
  * 全散在客户端，对方哪天加白名单或改协议，所有已发出去的版本一起挂。收在后端之后：
  *   ① 前端只有一个网络边界（自己的域名），上游怎么变都在服务端消化；
  *   ② 连接数从「每个标签页一条」收敛成「整个服务一条」，上游压力可控；
@@ -18,11 +31,8 @@ import { normalizeEventRow } from './ztliveService.js'
  * 统计、板块仍然由 ztliveService 的快照轮询负责。两条链路互补，缺一不可。
  */
 
-/** 上游把行情推送统一打上这个关键词，用它先粗筛掉心跳等非行情报文 */
-const WS_KEYWORD = 'stocklive'
-const HEARTBEAT_MS = 30_000
-const RECONNECT_MIN_MS = 2_000
-const RECONNECT_MAX_MS = 30_000
+/** 兜底校验：万一上游把别的频道塞进来，用它挡掉 */
+const EXPECTED_FROM = 'ztpool'
 /** 最近事件环形缓冲：客户端断线重连时按 Last-Event-ID 补发这一段，避免漏掉封板 */
 const BUFFER_SIZE = 200
 const BUFFER_TTL_MS = 120_000
@@ -45,10 +55,8 @@ const status = {
   lastError: '',
 }
 
-let ws = null
-let heartbeatTimer = null
-let reconnectTimer = null
-let retryCount = 0
+let manager = null
+let socket = null
 let started = false
 let seq = 0
 const buffer = []
@@ -69,61 +77,47 @@ function emitStatus() {
   bus.emit('status', publicStatus())
 }
 
-function clearTimers() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
+function setState(next, patch = {}) {
+  Object.assign(status, patch)
+  if (status.state !== next) status.state = next
+  emitStatus()
+}
+
+/**
+ * TLS 选项。
+ *
+ * `t.duanxianxia.com` 握手时**只下发站点证书、不带中间证书**（Certum DV TLS G2 R39 CA）。
+ * 浏览器会顺着证书里的 AIA 地址自己把中间证书补下来，Node 不会 —— 于是默认信任链
+ * 直接报 `unable to verify the first certificate`，连接根本建不起来。
+ * 这里把中间证书并进默认根证书池，等价于浏览器补做的那一步，**不放宽校验**。
+ * `ZTLIVE_WS_CA_FILE` 可以指向别的文件（上游换证书时不用改代码）。
+ */
+function buildTlsOptions() {
+  const caFile = config.ztliveWsCaFile
+  if (!caFile) return {}
+  try {
+    return { ca: [...tls.rootCertificates, readFileSync(caFile, 'utf8')] }
+  } catch (error) {
+    // 读不到就退回默认信任链：连不上会走 connect_error，日志里能看出是证书问题
+    logger.warn('ztlive_ws_ca_unreadable', { file: caFile, message: error.message })
+    return {}
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-}
-
-function scheduleReconnect() {
-  if (!started || reconnectTimer) return
-  // 指数退避，封顶 30 秒：上游抖一下就疯狂重连会把两边都拖垮
-  const delay = Math.min(RECONNECT_MIN_MS * 2 ** Math.min(retryCount, 4), RECONNECT_MAX_MS)
-  retryCount += 1
-  status.reconnects += 1
-  logger.warn('ztlive_ws_reconnect_scheduled', { delayMs: delay, attempt: retryCount })
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null
-    connect()
-  }, delay)
-}
-
-function pickUrl() {
-  // 首个地址失败后先切备用域名试一轮，再回到主地址继续退避
-  return retryCount % 2 === 1 ? config.ztliveWsFallbackUrl : config.ztliveWsUrl
-}
-
-function startHeartbeat() {
-  if (heartbeatTimer) clearInterval(heartbeatTimer)
-  heartbeatTimer = setInterval(() => {
-    try {
-      if (ws && ws.readyState === 1) ws.send('ping')
-    } catch (_) {
-      // 发送失败交给 onclose 走重连，这里不额外处理
-    }
-  }, HEARTBEAT_MS)
 }
 
 /** 上游报文 → 事件对象。非行情 / 非 ztpool 一律丢弃 */
-function parseFrame(raw) {
-  const text = typeof raw === 'string' ? raw : String(raw ?? '')
-  if (!text.includes(WS_KEYWORD)) return null
-
-  let info
-  try {
-    info = JSON.parse(text)
-  } catch (_) {
-    return null
+function toEventRow(payload) {
+  let info = payload
+  if (typeof payload === 'string') {
+    try {
+      info = JSON.parse(payload)
+    } catch (_) {
+      return null
+    }
   }
+  if (!info || typeof info !== 'object') return null
 
-  // 上游在同一条连接上跑两个频道：`ztpool` 是封板，`ztyd` 是异动。
-  // 这里只关心封板 —— 异动播报是另一条产品线，混进来会把表格搅乱。
-  if (info?.from !== 'ztpool') return null
+  // `/ztlive` 频道按约定只有封板；仍然判一次 from，避免上游把异动混进同一条流
+  if (info.from && info.from !== EXPECTED_FROM) return null
 
   const row = normalizeEventRow(info)
   if (!row || !/^\d{6}$/.test(row.code)) return null
@@ -143,69 +137,65 @@ function publish(row) {
 }
 
 function connect() {
-  if (!started) return
-  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return
-  if (typeof WebSocket === 'undefined') {
-    status.state = 'closed'
-    status.lastError = 'runtime_without_websocket'
-    logger.error('ztlive_ws_unsupported_runtime', {
-      hint: '需要 Node 18+（内置 WebSocket）；已自动降级为纯快照轮询',
-    })
-    return
-  }
+  if (!started || manager) return
 
-  const url = pickUrl()
-  status.state = 'connecting'
-  status.url = url
-  emitStatus()
+  const url = config.ztliveWsUrl
+  const ns = config.ztliveWsNamespace
+  status.url = `${url}${ns}`
+  setState('connecting', { lastError: '' })
 
   try {
-    ws = new WebSocket(url)
+    manager = new Manager(url, {
+      path: config.ztliveWsPath,
+      transports: ['websocket'],
+      // 重连交给 Socket.IO：指数退避 1s → 30s，永不放弃
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1_000,
+      reconnectionDelayMax: 30_000,
+      timeout: 20_000,
+      ...buildTlsOptions(),
+    })
   } catch (error) {
-    status.state = 'closed'
-    status.lastError = error.message
+    manager = null
+    setState('closed', { lastError: error.message })
     logger.warn('ztlive_ws_ctor_failed', { url, message: error.message })
-    ws = null
-    scheduleReconnect()
     return
   }
 
-  ws.onopen = () => {
-    retryCount = 0
-    status.state = 'open'
-    status.connectedAt = Date.now()
-    status.lastError = ''
-    logger.info('ztlive_ws_open', { url })
-    startHeartbeat()
-    emitStatus()
-  }
+  manager.on('reconnect_attempt', (attempt) => {
+    status.reconnects += 1
+    setState('connecting')
+    logger.warn('ztlive_ws_reconnect', { attempt })
+  })
 
-  ws.onmessage = (event) => {
-    status.receivedFrames += 1
-    const row = parseFrame(event?.data)
-    if (row) {
-      logger.info('ztlive_ws_ztpool', { code: row.code, name: row.name, status: row.status })
-      publish(row)
-    }
-  }
+  socket = manager.socket(ns)
 
-  ws.onerror = () => {
-    // 浏览器/undici 的 error 事件都不带原因，真正的信息在随后的 close 里
-    status.lastError = 'socket_error'
-  }
+  socket.on('connect', () => {
+    setState('open', { connectedAt: Date.now(), lastError: '' })
+    logger.info('ztlive_ws_open', { url: status.url, sid: socket.id })
+  })
 
-  ws.onclose = (event) => {
-    status.state = 'closed'
-    clearTimers()
-    ws = null
-    emitStatus()
+  socket.on('disconnect', (reason) => {
+    setState('closed')
     logger.warn('ztlive_ws_closed', {
-      code: event?.code,
-      reason: event?.reason,
+      reason,
       connectedForMs: status.connectedAt ? Date.now() - status.connectedAt : 0,
     })
-    scheduleReconnect()
-  }
+  })
+
+  socket.on('connect_error', (error) => {
+    setState('closed', { lastError: error?.message || 'connect_error' })
+    logger.warn('ztlive_ws_connect_error', { url: status.url, message: error?.message || '' })
+  })
+
+  socket.on(config.ztliveWsEvent, (payload) => {
+    status.receivedFrames += 1
+    const row = toEventRow(payload)
+    if (!row) return
+    logger.info('ztlive_ws_ztpool', { code: row.code, name: row.name, status: row.status })
+    publish(row)
+  })
 }
 
 export function start() {
@@ -215,24 +205,33 @@ export function start() {
     return
   }
   started = true
-  logger.info('ztlive_ws_starting', { url: config.ztliveWsUrl })
+  logger.info('ztlive_ws_starting', {
+    url: `${config.ztliveWsUrl}${config.ztliveWsNamespace}`,
+    path: config.ztliveWsPath,
+    transport: 'socket.io',
+  })
   connect()
 }
 
 export function stop() {
   started = false
-  clearTimers()
-  if (ws) {
+  if (socket) {
     try {
-      ws.onclose = null
-      ws.onerror = null
-      ws.onmessage = null
-      ws.onopen = null
-      ws.close()
+      socket.removeAllListeners()
+      socket.disconnect()
     } catch (_) {
       /* 忽略：进程退出路径上的关闭失败无需处理 */
     }
-    ws = null
+    socket = null
+  }
+  if (manager) {
+    try {
+      manager.removeAllListeners()
+      manager.disconnect()
+    } catch (_) {
+      /* 同上 */
+    }
+    manager = null
   }
   status.state = 'idle'
 }

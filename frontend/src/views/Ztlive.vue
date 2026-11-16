@@ -10,7 +10,7 @@ import { track } from '@/utils/track'
 import { buildEmbedUrl, copyPlainText } from '@/utils/embedLink'
 import { getChannel } from '@/utils/deviceId'
 import VoiceSwitch from '@/components/ztlive/VoiceSwitch.vue'
-import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
+import ZtliveNativeTable from '@/components/ztlive/ZtliveNativeTable.vue'
 
 // 数据与语音两块能力都抽成组合式函数，站点页和通达信独立页共用同一份口径。
 const userStore = useUserStore()
@@ -161,7 +161,7 @@ async function copyEmbedLink() {
         </div>
         <div class="filter-tools">
           <el-input v-model="searchText" size="small" clearable placeholder="搜索股票 / 代码 / 题材" class="stock-search">
-            <template #prefix><el-icon><Search /></el-icon></template>
+            <template #prefix><el-icon><SearchIcon /></el-icon></template>
           </el-input>
           <el-checkbox v-model="hideUnselected" :disabled="!activePlate">只看选中板块</el-checkbox>
         </div>
@@ -202,7 +202,7 @@ async function copyEmbedLink() {
       <el-alert v-if="errorText" :title="errorText" type="error" show-icon :closable="false" class="ztlive-alert" />
       <el-skeleton v-else-if="initialLoading" :rows="8" animated />
       <el-empty v-else-if="isEmpty" description="当前没有涨停播报数据" />
-      <ZtliveTable v-else :rows="filteredRows" :loading="refreshing" @sort-change="onSortChange" />
+      <ZtliveNativeTable v-else :rows="filteredRows" :loading="refreshing" @sort-change="onSortChange" />
     </section>
   </div>
 </template>

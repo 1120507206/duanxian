@@ -41,6 +41,38 @@ const NUMERIC_SORT_PROPS = new Set([
   'pct', 'auctionPct', 'boardNumber', 'price', 'sealAmount', 'amount', 'turnoverRate', 'floatMarketCap',
 ])
 
+/**
+ * 判断「这一轮快照有没有变」时要比的字段。
+ *
+ * 只比表格真正展示的内容：多比一个上游内部字段，就会在它每次抖动时白重建一遍；
+ * 少比一个，页面就会停在旧值上。字段名与 ztliveService 的输出结构一一对应。
+ */
+const COMPARED_FIELDS = [
+  'name', 'status', 'board', 'boardNumber', 'price', 'pct', 'auctionPct',
+  'sealAmount', 'sealAmountText', 'amount', 'amountText', 'firstTime', 'endTime',
+  'turnoverRate', 'floatMarketCap', 'plate', 'topic',
+]
+
+function sameRows(left, right) {
+  if (left.length !== right.length) return false
+
+  // 按 code 比对而不是按下标：封板推送会把行 unshift 到最前面，
+  // 服务端仍按自己的顺序返回同一只票；按下标比会一直误判「变了」。
+  const previous = new Map(left.map((row) => [row.code, row]))
+  if (previous.size !== left.length) return false
+
+  for (const next of right) {
+    const current = previous.get(next.code)
+    if (!current) return false
+
+    for (const field of COMPARED_FIELDS) {
+      if (current[field] !== next[field]) return false
+    }
+  }
+
+  return true
+}
+
 function sortableValue(row, prop) {
   if (NUMERIC_SORT_PROPS.has(prop)) return Number(row[prop])
   return row[prop] ?? ''
@@ -216,34 +248,40 @@ export function useZtliveFeed({
     return target
   }
 
-  /**
-   * 快照与推送行合并。
-   *
-   * 三条规则：
-   *   ① 过期登记先清掉（超过保护期说明上游始终没收录，这只票的推送价值已经过期）；
-   *   ② 快照已收录的行，**沿用推送时的行对象**，只把字段刷成服务端口径 ——
-   *      换新对象会把高亮和定时器一起丢掉，用户会看到高亮突然熄灭；
-   *   ③ 快照还没收录的行，插回列表最前面，避免被这一轮快照整体替换掉。
-   */
-  function mergeWithPending(serverList) {
+  /** 过期推送行登记清理：超过保护期说明上游始终没收录，这只票的推送价值已经过期 */
+  function pruneExpiredPending() {
     const now = Date.now()
-
     for (const [code, entry] of [...pendingPushes]) {
       if (now - entry.addedAt > PENDING_TTL_MS) {
         if (entry.freshTimer) clearTimeout(entry.freshTimer)
         pendingPushes.delete(code)
       }
     }
+  }
+
+  /**
+   * 快照与推送行合并。
+   *
+   * 三条规则：
+   *   ① 过期登记先清掉（超过保护期说明上游始终没收录，这只票的推送价值已经过期）；
+   *   ② 快照已收录的行，**沿用上一轮的行对象**，只把字段刷成服务端口径 ——
+   *      换新对象会把高亮、定时器和 Vue 的渲染缓存一起丢掉，用户会看到高亮突然熄灭；
+   *   ③ 快照还没收录的行，插回列表最前面，避免被这一轮快照整体替换掉。
+   *
+   * 注意：必须在替换 `payload.value` 之前先把旧列表里的对象取出来（Map 里存的是
+   * 响应式代理），直接存服务端返回的原始对象会导致 `__fresh` 改动不触发渲染。
+   */
+  function mergeWithPending(serverList) {
+    const previousRows = new Map(payload.value.list.map((row) => [row.code, row]))
 
     const merged = serverList.map((item) => {
-      const entry = pendingPushes.get(item.code)
-      if (!entry) return item
+      const existing = previousRows.get(item.code) || pendingPushes.get(item.code)?.row
+      if (!existing) return item
 
-      const target = entry.row
-      const fresh = target.__fresh
+      const fresh = existing.__fresh
       // 服务端行里没有 __fresh 字段，不会被覆盖；显式写回是为了防止将来上游多加字段时踩到
-      Object.assign(target, item, { __fresh: fresh })
-      return target
+      Object.assign(existing, item, { __fresh: fresh })
+      return existing
     })
 
     const serverCodes = new Set(serverList.map((item) => item.code))
@@ -282,14 +320,38 @@ export function useZtliveFeed({
     try {
       const next = await fetchZtlive()
       const serverList = Array.isArray(next?.list) ? next.list : []
-      payload.value = {
-        date: next?.date || '--',
-        list: mergeWithPending(serverList),
-        plates: Array.isArray(next?.plates) ? next.plates : [],
-        summary: next?.summary || null,
+      const nextDate = next?.date || '--'
+
+      pruneExpiredPending()
+
+      /**
+       * 先判断「这一轮有没有变」。
+       *
+       * 交易时段上游经常连续多轮返回完全相同的内容（快照约 3 秒重写一次，
+       * 但涨停列表并不是每 3 秒都变）。原来每次都整份替换 payload，导致
+       * 800 行 × 14 列的表每 3 秒重建一次 vnode，低端机在通达信面板里明显卡顿。
+       *
+       * 比较时排除 pending 行：它们还没被快照收录，不应该参与「服务端是否变化」的判断。
+       */
+      const serverCodes = new Set(serverList.map((item) => item.code))
+      // 只在「推送行还没被快照收录」时排除它；一旦收录就参与比对，
+      // 否则只要有推送，接下来 2 分钟每轮都会因为少一行而误判成「变了」。
+      const previousRows = payload.value.list.filter(
+        (row) => !pendingPushes.has(row.code) || serverCodes.has(row.code),
+      )
+      const unchanged = nextDate === payload.value.date && sameRows(previousRows, serverList)
+
+      if (!unchanged) {
+        payload.value = {
+          date: nextDate,
+          list: mergeWithPending(serverList),
+          plates: Array.isArray(next?.plates) ? next.plates : [],
+          summary: next?.summary || null,
+        }
+        if (typeof onSnapshot === 'function') onSnapshot(payload.value.list)
       }
+
       lastUpdatedAt.value = next?.timestamp || new Date().toISOString()
-      if (typeof onSnapshot === 'function') onSnapshot(payload.value.list)
       // 权益随行情一起回来，用它持续校准会员状态（会员过期 / 异地激活都能自动同步）
       if (next?.entitlements && typeof onEntitlements === 'function') onEntitlements(next.entitlements)
     } catch (error) {

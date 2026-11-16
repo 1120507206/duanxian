@@ -292,7 +292,7 @@ onMounted(async () => {
         @keyup.enter="search"
         @clear="search"
       >
-        <template #prefix><el-icon><Search /></el-icon></template>
+        <template #prefix><el-icon><SearchIcon /></el-icon></template>
       </el-input>
 
       <el-select v-model="query.filter" style="width: 140px" @change="search">

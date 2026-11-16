@@ -1,7 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import {
   Notification,
   Link as LinkIcon,
@@ -27,6 +26,28 @@ const themeStore = useThemeStore()
 const currentYear = new Date().getFullYear()
 const copySuccess = ref(false)
 const siteUrl = computed(() => (typeof window !== 'undefined' ? window.location.origin : ''))
+
+/**
+ * 极简 toast。
+ *
+ * 落地页刻意不引 Element Plus：为了两句提示去下载 1.1MB JS + 348KB CSS 不划算。
+ * 这里只需要「固定定位 + 三秒后消失」，二十行就够，还不受 EP 主题变量影响。
+ */
+const toast = ref(null)
+let toastTimer = null
+
+function showToast(type, message, duration = 2600) {
+  toast.value = { type, message }
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toast.value = null
+    toastTimer = null
+  }, duration)
+}
+
+onBeforeUnmount(() => {
+  if (toastTimer) clearTimeout(toastTimer)
+})
 
 /**
  * 功能卡配置。
@@ -201,23 +222,13 @@ async function copyLink() {
 
     copySuccess.value = true
     track('copy_link', { scene: 'landing' })
-    ElMessage({
-      type: 'success',
-      message: '独立页链接已复制，可直接粘贴到通达信自定义页面',
-      duration: 2600,
-      showClose: true,
-    })
+    showToast('success', '独立页链接已复制，可直接粘贴到通达信自定义页面')
     setTimeout(() => {
       copySuccess.value = false
     }, 2000)
   } catch (error) {
     console.warn('[landing] 复制独立页链接失败:', error)
-    ElMessage({
-      type: 'error',
-      message: '复制失败，请手动复制：' + link,
-      duration: 4000,
-      showClose: true,
-    })
+    showToast('error', '复制失败，请手动复制：' + link, 4000)
   }
 }
 
@@ -252,10 +263,10 @@ onMounted(() => {
       :aria-label="themeStore.isDark ? '切换到浅色' : '切换到深色'"
       @click="toggleTheme"
     >
-      <el-icon :size="18" class="theme-fab-icon">
+      <span class="theme-fab-icon">
         <Sunny v-if="themeStore.isDark" />
         <Moon v-else />
-      </el-icon>
+      </span>
       <span class="theme-fab-label">{{ themeStore.isDark ? '浅色' : '深色' }}</span>
     </button>
 
@@ -525,9 +536,25 @@ onMounted(() => {
           <p class="footer-disclaimer">
             本工具仅供研究参考，不构成投资建议。市场有风险，投资需谨慎。
           </p>
+          <p class="footer-icp">
+            <a
+              class="footer-icp-link"
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              粤ICP备2026167467号
+            </a>
+          </p>
         </div>
       </div>
     </footer>
+
+    <transition name="landing-toast">
+      <div v-if="toast" class="landing-toast" :class="`is-${toast.type}`" role="status">
+        {{ toast.message }}
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -574,9 +601,48 @@ onMounted(() => {
   box-shadow: var(--shadow-card-hover);
 }
 
-.theme-fab-icon { transition: transform var(--transition-smooth); }
+.theme-fab-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 18px;
+  transition: transform var(--transition-smooth);
+}
 .theme-fab:hover .theme-fab-icon { transform: rotate(20deg); }
 .theme-fab-label { line-height: 1; }
+
+/* ---------- 轻量 toast（不依赖 Element Plus） ---------- */
+.landing-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 80;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 11px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-card-hover);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  word-break: break-all;
+  transform: translateX(-50%);
+}
+
+.landing-toast.is-success { border-color: rgba(22, 163, 74, 0.45); }
+.landing-toast.is-error { border-color: rgba(220, 38, 38, 0.45); }
+
+.landing-toast-enter-active,
+.landing-toast-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.landing-toast-enter-from,
+.landing-toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
 
 /* ---------- Hero ---------- */
 .hero {
@@ -1491,6 +1557,22 @@ html.dark .feature-check-svg {
   font-size: 13px;
   color: var(--color-text-muted);
   line-height: 1.6;
+}
+
+.footer-icp {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.footer-icp-link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.footer-icp-link:hover {
+  color: var(--color-rise);
 }
 
 /* ---------- Animations ---------- */

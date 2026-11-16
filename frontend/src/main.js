@@ -1,11 +1,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+import { setElementHost } from './plugins/element'
 import { useThemeStore } from './stores/theme'
 import { useUserStore } from './stores/user'
 import './assets/main.css'
@@ -15,11 +12,10 @@ const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus, { locale: zhCn })
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
+// Element Plus 不再在这里全局安装：落地页不需要它，装了就会把 1.1MB JS +
+// 348KB CSS 塞进首屏。改为进入非落地页时由路由守卫按需装载（见 plugins/element.js）。
+setElementHost(app)
 
 // 挂载前先把主题同步到 <html>，与 index.html 内联脚本保持一致（防止极端情况下类丢失）。
 useThemeStore(pinia).sync()

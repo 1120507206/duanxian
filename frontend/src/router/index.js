@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getAdminToken } from '@/utils/adminToken'
+import { ensureElementPlus } from '@/plugins/element'
 
 const routes = [
   {
@@ -151,7 +152,26 @@ const router = createRouter({
  * 这样分工的原因：如果守卫里发起网络请求，每次后台内跳转都要等一次往返，
  * 断网时甚至会卡在登录页出不去。
  */
-router.beforeEach((to) => {
+/**
+ * 进入应用页前先装好 Element Plus。
+ *
+ * 落地页是纯营销页，不加载 EP；其它页面（含后台）第一次进入时在这里等待
+ * 动态 chunk 就绪。放在守卫里而不是各页面 onMounted，是为了保证「组件注册」
+ * 一定早于「页面渲染」—— el-table 这类组件在 setup 阶段就要解析，晚一步就只剩
+ * 一个未解析标签。
+ *
+ * 加载失败时继续导航：至少让用户看到路由页面的骨架和错误提示，而不是卡在落地页
+ * 什么都不发生；下一次导航会重试。
+ */
+router.beforeEach(async (to) => {
+  if (to.name !== 'landing') {
+    try {
+      await ensureElementPlus()
+    } catch (error) {
+      console.error('[router] Element Plus 尚未就绪，页面可能缺少组件', error)
+    }
+  }
+
   if (!String(to.path).startsWith('/admin')) return true
   if (to.name === 'admin-login') return true
   if (!getAdminToken()) {

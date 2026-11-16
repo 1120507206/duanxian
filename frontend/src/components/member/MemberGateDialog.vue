@@ -1,6 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, getCurrentInstance, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Key, Promotion } from '@element-plus/icons-vue'
 import { fetchPlans } from '@/api'
@@ -34,8 +33,38 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-const router = useRouter()
-const route = useRoute()
+/**
+ * 路由是可选的。
+ *
+ * 本组件同时出现在两个宿主里：
+ *   · 整站 SPA（/ztlive、/activate）—— 装了 vue-router；
+ *   · 通达信独立页（/ztlive.html）—— 直接 createApp(ZtliveEmbed)，**没有路由**。
+ *
+ * useRouter()/useRoute() 在没有路由的应用里返回 undefined，之前这里直接
+ * `router.push(...)` + `route.fullPath`，在面板里点「注册领 30 天」会抛
+ * TypeError，弹窗关掉但页面不动 —— 付费漏斗最关键的一跳直接断掉。
+ *
+ * 所以这里改成：能拿到 router 就走前端跳转，拿不到就整页跳转。
+ */
+const appContext = getCurrentInstance()?.appContext
+const router = appContext?.config?.globalProperties?.$router || null
+
+function currentPath() {
+  if (typeof window === 'undefined') return '/ztlive'
+  return `${window.location.pathname}${window.location.search}`
+}
+
+function goLogin() {
+  // 独立页不能把 /ztlive.html 当 redirect：它在 SPA 路由表里不存在，
+  // 登录后 router.replace 会落到一个没有匹配组件的空页面。
+  // 统一回站点版 /ztlive —— 同源同 WebView，token 共享，用户回到面板仍是登录态。
+  const redirect = router ? currentPath() : '/ztlive'
+  const target = `/login?redirect=${encodeURIComponent(redirect)}`
+
+  if (router) router.push(target)
+  else window.location.assign(target)
+}
+
 const userStore = useUserStore()
 
 const plans = ref([])
@@ -128,7 +157,7 @@ function handlePrimary() {
   if (!userStore.loggedIn) {
     track('pay_click', { scene: props.scene, target: 'register' })
     visible.value = false
-    router.push({ path: '/login', query: { redirect: route.fullPath } })
+    goLogin()
     return
   }
 

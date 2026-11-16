@@ -84,7 +84,7 @@ function onRemove(code, name) {
         v-for="stock in store.stocks"
         :key="stock.code"
         class="zx-card"
-        :class="Number(stock.pct) >= 0 ? 'zx-rise' : 'zx-fall'"
+        :class="stock.pct == null ? '' : (Number(stock.pct) >= 0 ? 'zx-rise' : 'zx-fall')"
       >
         <div class="zx-header">
           <div>
@@ -94,13 +94,19 @@ function onRemove(code, name) {
           <button class="zx-del" title="删除" @click="onRemove(stock.code, stock.name)">&times;</button>
         </div>
         <div class="zx-price-row">
-          <span class="zx-price">{{ stock.price }}</span>
-          <span :class="['zx-pct-badge', Number(stock.pct) >= 0 ? 'bg-rise-soft text-rise' : 'bg-fall-soft text-fall']">
+          <span class="zx-price">{{ stock.price == null ? '--' : stock.price }}</span>
+          <span
+            v-if="stock.pct != null"
+            :class="['zx-pct-badge', Number(stock.pct) >= 0 ? 'bg-rise-soft text-rise' : 'bg-fall-soft text-fall']"
+          >
             {{ Number(stock.pct) >= 0 ? '+' : '' }}{{ stock.pct }}%
           </span>
+          <span v-else class="zx-pct-badge zx-pct-muted">--</span>
         </div>
         <div class="zx-meta">
-          <span class="zx-updated">实时</span>
+          <span class="zx-updated" :class="{ 'is-stale': !stock.quoteAvailable }">
+            {{ stock.quoteAvailable ? '实时' : '行情暂不可用' }}
+          </span>
         </div>
       </div>
     </div>
@@ -179,6 +185,7 @@ function onRemove(code, name) {
 .zx-price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .zx-price { font-size: 22px; font-weight: 800; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
 .zx-pct-badge { font-size: 14px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.zx-pct-muted { background: var(--color-bg-card-hover); color: var(--color-text-muted); }
 
 .zx-meta { display: flex; align-items: center; }
 
@@ -198,4 +205,8 @@ function onRemove(code, name) {
   border-radius: 50%;
   background: #22c55e;
 }
+
+/* 行情没拿到时不要伪装成「实时」：灰点 + 文案已经说明情况 */
+.zx-updated.is-stale { color: var(--color-text-muted); }
+.zx-updated.is-stale::before { background: var(--color-text-muted); }
 </style>

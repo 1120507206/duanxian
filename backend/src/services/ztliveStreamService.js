@@ -22,26 +22,63 @@ const HEARTBEAT_MS = 25_000
 const clients = new Set()
 let clientSeq = 0
 
+/**
+ * 单个客户端的写缓冲上限。
+ *
+ * SSE 是「服务端一直写」的长连接：如果某个客户端（弱网、卡死的面板、后台标签页）
+ * 读得比我们写得慢，Node 会把数据堆在 res 的写缓冲里，最坏情况能把进程内存吃光。
+ * 超过 1MB 直接断开，让它按 EventSource 的 retry 重新连 —— 重连后会自动补齐
+ * 最近 2 分钟的事件，比拖着一个永远读不完的连接更安全。
+ */
+const MAX_BUFFERED_BYTES = 1024 * 1024
+
 function write(client, chunk) {
   try {
-    client.res.write(chunk)
-  } catch (_) {
-    // 写失败说明连接已经废了，close 事件会把它摘掉
-  }
-}
+    const res = client.res
 
-function sendEvent(client, event) {
-  if (!client.allowEvents) return
-  write(client, `id: ${event.seq}\nevent: ztpool\ndata: ${JSON.stringify(event)}\n\n`)
+    if (!res.writableEnded && res.writableLength > MAX_BUFFERED_BYTES) {
+      logger.warn('ztlive_stream_client_slow', {
+        clientId: client.id,
+        buffered: res.writableLength,
+      })
+      res.destroy?.()
+      cleanup(client)
+      return false
+    }
+
+    res.write(chunk)
+    return true
+  } catch (_) {
+    // 写失败说明连接已经废了，close 事件会把它摘掉；这里主动清一次避免泄漏
+    cleanup(client)
+    return false
+  }
 }
 
 function sendControl(client, name, payload) {
   write(client, `event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`)
 }
 
-/** 把总线上的事件转发给所有（有权限的）客户端 */
+/** 断线补发用。补发是低频路径（一次最多 200 条），不必为它做共享序列化 */
+function sendEvent(client, event) {
+  if (!client.allowEvents) return false
+  return write(client, `id: ${event.seq}\nevent: ztpool\ndata: ${JSON.stringify(event)}\n\n`)
+}
+
+/**
+ * 把总线上的事件转发给所有（有权限的）客户端。
+ *
+ * 序列化只做一次：以前每个客户端都 JSON.stringify 一遍，500 个连接就是
+ * 每条事件 500 次序列化，行情密集时纯属浪费 CPU。
+ */
 socket.subscribeEvents((event) => {
-  for (const client of clients) sendEvent(client, event)
+  if (!clients.size) return
+
+  const chunk = `id: ${event.seq}\nevent: ztpool\ndata: ${JSON.stringify(event)}\n\n`
+  for (const client of clients) {
+    if (!client.allowEvents) continue
+    write(client, chunk)
+  }
 })
 
 /** 上游连接状态变化也透出去，前端能显示「实时通道重连中」而不是假装一切正常 */

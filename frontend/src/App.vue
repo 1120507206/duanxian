@@ -1,7 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AppLayout from '@/components/layout/AppLayout.vue'
+
+/**
+ * 布局改成异步组件：它 import 了 Element Plus（ElMessage）和会员弹窗，
+ * 静态引入会把 EP 重新拖回首屏包，前面的按需装载就白做了。
+ * 落地页不会渲染 AppLayout，所以这个 chunk 只有进入应用页才会请求。
+ */
+const AppLayout = defineAsyncComponent(() => import('@/components/layout/AppLayout.vue'))
 
 const route = useRoute()
 const router = useRouter()

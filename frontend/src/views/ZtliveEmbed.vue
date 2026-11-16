@@ -7,7 +7,7 @@ import { useZtVoice } from '@/composables/useZtVoice'
 import { useUserStore } from '@/stores/user'
 import { track } from '@/utils/track'
 import VoiceSwitch from '@/components/ztlive/VoiceSwitch.vue'
-import ZtliveTable from '@/components/ztlive/ZtliveTable.vue'
+import ZtliveNativeTable from '@/components/ztlive/ZtliveNativeTable.vue'
 
 /**
  * 涨停播报独立页（通达信面板专用）
@@ -121,7 +121,7 @@ const realtimeTitle = computed(() => {
       </div>
       <div class="filter-tools">
         <el-input v-model="searchText" size="small" clearable placeholder="搜索股票 / 代码 / 题材" class="stock-search">
-          <template #prefix><el-icon><Search /></el-icon></template>
+          <template #prefix><el-icon><SearchIcon /></el-icon></template>
         </el-input>
         <el-checkbox v-model="hideUnselected" :disabled="!activePlate">只看选中板块</el-checkbox>
         <span class="count-text">{{ visibleCountText }}</span>
@@ -132,12 +132,12 @@ const realtimeTitle = computed(() => {
       <el-alert v-if="errorText" :title="errorText" type="error" show-icon :closable="false" class="embed-alert" />
       <el-skeleton v-else-if="initialLoading" :rows="8" animated />
       <el-empty v-else-if="isEmpty" description="当前没有涨停播报数据（非交易时段或数据源待开盘）" />
-      <ZtliveTable
+      <ZtliveNativeTable
         v-else
         compact
         :rows="filteredRows"
         :loading="refreshing"
-        height="calc(100vh - 168px)"
+        height="100%"
         min-height="220"
         @sort-change="onSortChange"
       />
@@ -355,7 +355,11 @@ html.dark .stat-rate b { color: #facc15; }
 
 .embed-alert { margin-bottom: 8px; }
 
-.embed-body :deep(.el-table) { flex: 1; }
+/* 原生表格撑满剩余高度；min-height:0 允许它在矮面板里正常收缩 */
+.embed-body :deep(.nz-table) {
+  flex: 1;
+  min-height: 0;
+}
 
 .empty-inline { color: var(--color-text-muted); font-size: 12px; }
 
