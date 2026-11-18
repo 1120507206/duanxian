@@ -132,6 +132,18 @@ onBeforeUnmount(() => {
       <main class="main-content">
         <slot />
       </main>
+
+      <!-- 主体备案号：应用内每页都带，符合备案核验「网站底部展示」的要求 -->
+      <footer class="app-footer">
+        <a
+          class="app-footer-link"
+          href="https://beian.miit.gov.cn/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          粤ICP备2026167467号
+        </a>
+      </footer>
     </div>
 
     <el-dialog v-model="disclaimerVisible" title="风险提示" width="420px" :close-on-click-modal="false">
@@ -377,6 +389,35 @@ onBeforeUnmount(() => {
   min-width: 0;
   background: var(--color-bg-base);
   transition: background-color var(--transition-smooth);
+}
+
+/*
+ * 备案号条：常驻在内容区下方，**不随页面内容滚动**。
+ * 之所以不做成「跟在内容末尾」的一行 —— 应用内页面大多是满屏表格，
+ * 跟在末尾就等于藏在滚动区底部，核验时看不见，等于没放。
+ * 高度固定 28px，不参与 flex 增长，不会挤压页面主体。
+ */
+.app-footer {
+  flex-shrink: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+.app-footer-link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.app-footer-link:hover {
+  color: var(--color-rise);
 }
 
 .risk-copy,
